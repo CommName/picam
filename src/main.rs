@@ -1,5 +1,10 @@
-use gstreamer::prelude::*;
+use std::io::Write;
+use std::ops::Deref;
+
+use byte_slice_cast::AsByteSlice;
+use gstreamer::{prelude::*, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline, State, StateChangeSuccess};
+use gstreamer_app::AppSink;
 /*
 gst-launch-1.0 -e v4l2src \
     ! videoconvert ! video/x-raw, format=I420 ! x264enc key-int-max=10 ! queue  ! tee name=t ! \
@@ -48,16 +53,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .unwrap();
 
+    let appsink = AppSink::builder()
+        .name("app_sink")
+        .build();
+
+
     // Add elements to the pipeline
     pipeline.add_many(&[
         &v4l2src, &videoconvert, &queue1, &x264enc, &tee, &queue2, &h264parse,
-        &splitmuxsink, &queue3, &mpegtsmux, &udpsink,
+        &splitmuxsink, &queue3, &mpegtsmux, appsink.upcast_ref(),
     ])?;
 
     // Link elements in the pipeline
     gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &queue1, &x264enc, &tee])?;
     gstreamer::Element::link_many(&[&queue2, &h264parse, &splitmuxsink])?;
-    gstreamer::Element::link_many(&[&queue3, &mpegtsmux, &udpsink])?;
+    gstreamer::Element::link_many(&[&queue3, &mpegtsmux, &appsink.upcast_ref()])?;
 
     // Link tee to other branches
     let tee_src_1 = tee.request_pad_simple("src_0").unwrap();
@@ -67,6 +77,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tee_src_2 = tee.request_pad_simple("src_1").unwrap();
     let queue3_sink = queue3.static_pad("sink").unwrap();
     tee_src_2.link(&queue3_sink)?;
+
+    let (send, recv) = std::sync::mpsc::channel();
+
+    appsink.set_callbacks(gstreamer_app::AppSinkCallbacks::builder()
+        .new_sample(move |app_sink| {
+
+            if let Ok(sample) = app_sink.pull_sample() {
+                if let Some(buffer) = sample.buffer() {
+                    let dts = buffer.dts();
+                    let pts = buffer.pts();
+                    let size = buffer.size();
+
+                    let mapa = buffer.map_readable().unwrap();
+                    let slice = mapa.to_vec();
+                    let size = slice.len();
+                    send.send(slice);
+                    println!("DTS: {dts:?} PTS: {pts:?} SIZE: {size}");
+                }
+            }
+
+            Ok(FlowSuccess::Ok)
+        }).build()
+    );
+
+    std::thread::spawn(move || {
+        let mut file = std::fs::File::create("./test.ts").unwrap();
+        while let Ok(slice) = recv.recv() {
+            println!("Writing to file");
+            file.write(&slice).unwrap();
+        }
+    });
 
     // Start playing
     pipeline.set_state(State::Playing)?;
