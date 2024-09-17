@@ -1,0 +1,16 @@
+[package]
+name = "webcam_streamer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-channel = "2.3.1"
+byte-slice-cast = "1.2.2"
+glib = "0.20.2"
+gstreamer = "0.23.0"
+gstreamer-app = "0.23.0"
+gstreamer-audio = "0.23.0"
+gstreamer-pbutils = "0.23.0"
+termion = "4.0.2"
