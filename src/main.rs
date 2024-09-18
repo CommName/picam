@@ -2,7 +2,8 @@ use std::io::Write;
 use std::ops::Deref;
 
 use byte_slice_cast::AsByteSlice;
-use gstreamer::{prelude::*, FlowSuccess};
+use glib::DateTime;
+use gstreamer::{prelude::*, FlowSuccess, Sample};
 use gstreamer::{ElementFactory, Pipeline, State, StateChangeSuccess};
 use gstreamer_app::AppSink;
 /*
@@ -84,16 +85,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .new_sample(move |app_sink| {
 
             if let Ok(sample) = app_sink.pull_sample() {
-                if let Some(buffer) = sample.buffer() {
-                    let dts = buffer.dts();
-                    let pts = buffer.pts();
-                    let size = buffer.size();
+                if let Some(buffer) = sample.buffer_owned() {
+                    send.send(buffer);
+                    // let dts = buffer.dts();
+                    // let pts = buffer.pts();
+                    // let size = buffer.size();
 
-                    let mapa = buffer.map_readable().unwrap();
-                    let slice = mapa.to_vec();
-                    let size = slice.len();
-                    send.send(slice);
-                    println!("DTS: {dts:?} PTS: {pts:?} SIZE: {size}");
+                    // let mapa = buffer.map_readable().unwrap();
+                    // let slice = mapa.to_vec();
+                    // let size: usize = slice.len();
+                    // println!("DTS: {dts:?} PTS: {pts:?} SIZE: {size}");
                 }
             }
 
@@ -103,9 +104,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     std::thread::spawn(move || {
         let mut file = std::fs::File::create("./test.ts").unwrap();
-        while let Ok(slice) = recv.recv() {
-            println!("Writing to file");
-            file.write(&slice).unwrap();
+        let mut time = DateTime::now_local().unwrap();
+        let mut pts = None;
+        let mut vec = Vec::with_capacity(1024);
+        while let Ok(buffer) = recv.recv() {
+            if pts == buffer.pts() {
+                let mapa = buffer.map_readable().unwrap();
+                let mut slice = mapa.to_vec();
+                vec.append(&mut slice);
+            } else {
+                pts = buffer.pts();
+
+                // TODO send vector
+
+                vec.clear();
+            }
         }
     });
 
