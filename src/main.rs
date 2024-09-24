@@ -1,11 +1,17 @@
 use std::io::Write;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use byte_slice_cast::AsByteSlice;
+use futures_util::{SinkExt, StreamExt};
 use glib::DateTime;
-use gstreamer::{prelude::*, FlowSuccess, Sample};
+use gstreamer::{prelude::*, FlowSuccess, Message, Sample};
 use gstreamer::{ElementFactory, Pipeline, State, StateChangeSuccess};
 use gstreamer_app::AppSink;
+use poem::listener::TcpListener;
+use poem::web::Data;
+use poem::{get, EndpointExt, IntoResponse, Route, Server};
+use poem::{handler, web::websocket::{WebSocket, WebSocketStream} };
 /*
 gst-launch-1.0 -e v4l2src \
     ! videoconvert ! video/x-raw, format=I420 ! x264enc key-int-max=10 ! queue  ! tee name=t ! \
@@ -13,7 +19,28 @@ gst-launch-1.0 -e v4l2src \
     t. ! queue ! mpegtsmux ! udpsink host=224.0.0.4 port=5000
 
 */
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+
+
+#[handler]
+fn ws(
+    ws: WebSocket,
+    recv: Data<& tokio::sync::broadcast::Sender<Vec<u8>>>
+) -> impl IntoResponse {
+    let mut receiver = recv.subscribe();
+    ws.on_upgrade(move |socket| async move {
+        let (mut sink, mut stream) = socket.split();
+        while let Ok(msg) = receiver.recv().await {
+            if sink.send(poem::web::websocket::Message::binary(msg)).await.is_err() {
+                println!("Error sending message");
+                break;
+            }
+        }
+    })
+}
+
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer
     gstreamer::init()?;
 
@@ -90,18 +117,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // let dts = buffer.dts();
                     // let pts = buffer.pts();
                     // let size = buffer.size();
-
+                    
                     // let mapa = buffer.map_readable().unwrap();
                     // let slice = mapa.to_vec();
                     // let size: usize = slice.len();
                     // println!("DTS: {dts:?} PTS: {pts:?} SIZE: {size}");
                 }
             }
-
+            
             Ok(FlowSuccess::Ok)
         }).build()
     );
 
+    let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(1024);
+    let tx2 = tx.clone();
     std::thread::spawn(move || {
         let mut file = std::fs::File::create("./test.ts").unwrap();
         let mut time = DateTime::now_local().unwrap();
@@ -113,6 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut slice = mapa.to_vec();
                 vec.append(&mut slice);
             } else {
+                tx.send(vec.clone());
                 pts = buffer.pts();
 
                 // TODO send vector
@@ -125,25 +155,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start playing
     pipeline.set_state(State::Playing)?;
 
-    // Wait until error or EOS
-    let bus = pipeline.bus().unwrap();
-    for msg in bus.timed_pop_filtered(gstreamer::ClockTime::NONE, &[gstreamer::MessageType::Eos, gstreamer::MessageType::Error]) {
-        match msg.view() {
-            gstreamer::MessageView::Error(err) => {
-                eprintln!("Error received from element {:?}: {}", msg.src().map(|s| s.name()), err.error());
-                eprintln!("Debugging information: {:?}", err.debug());
-                break;
-            }
-            gstreamer::MessageView::Eos(..) => {
-                println!("End of stream reached.");
-                break;
-            }
-            _ => (),
-        }
-    }
+    // // Wait until error or EOS
+    // let bus = pipeline.bus().unwrap();
+    // for msg in bus.timed_pop_filtered(gstreamer::ClockTime::NONE, &[gstreamer::MessageType::Eos, gstreamer::MessageType::Error]) {
+    //     match msg.view() {
+    //         gstreamer::MessageView::Error(err) => {
+    //             eprintln!("Error received from element {:?}: {}", msg.src().map(|s| s.name()), err.error());
+    //             eprintln!("Debugging information: {:?}", err.debug());
+    //             break;
+    //         }
+    //         gstreamer::MessageView::Eos(..) => {
+    //             println!("End of stream reached.");
+    //             break;
+    //         }
+    //         _ => (),
+    //     }
+    // }
+
+    let app = Route::new()
+        .at("/ws",
+            get(ws).data(tx2));
+
+    let res = Server::new(TcpListener::bind("0.0.0.0:3000"))
+        .run(app)
+        .await;
 
     // Stop the pipeline
     pipeline.set_state(State::Null)?;
+
+    
 
     Ok(())
 }
