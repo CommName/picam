@@ -1,0 +1,94 @@
+<html>
+    <head>
+    </head>
+    <body>
+        Hello world
+        <video id="player" autoplay controls></video>
+    </body>
+    <script>
+
+        let mediaSource = null;
+        let video = document.getElementById('player');
+        let sourceBuffer = null;
+
+        function createVideoSource() {
+            mediaSource = new MediaSource();
+            video.src = URL.createObjectURL(mediaSource);
+
+            mediaSource.addEventListener("sourceopen", this.onSourceOpen);
+            video.load();
+        }
+        let opend = false;
+
+        function onSourceOpen() {
+            console.log("Adding new buffer: ", mediaSource.readyState);
+            if (opend) {
+                return;
+            }
+            opend = true;
+
+            let codec = 'video/mp4; codecs="avc1.42E01e"';
+            if (MediaSource.isTypeSupported(codec)) {
+                console.log("Codec supported");
+            }
+            sourceBuffer = mediaSource.addSourceBuffer(codec);
+            sourceBuffer.mode = "sequence";
+            sourceBuffer.addEventListener("updateend", () => {
+                //mediaSource.endOfStream();
+                //video.play();
+                console.log("Update end:", mediaSource); // ended
+            });
+
+            
+
+
+        const socket = new WebSocket("ws://localhost:3000/ws");
+
+            // Connection opened
+            socket.addEventListener("open", (event) => {
+                console.log("Connection opended");
+              //socket.send("Hello Server!");
+            });
+
+            // Listen for messages
+            socket.addEventListener("message", async (event) => {
+                let data = await event.data.arrayBuffer();
+                addToBuffer(data);
+            });
+
+            //sourceBuffer.addEventListener(
+            //    "updateend",
+            //    onBufferUpdateCallback
+            //);
+
+            setTimeout(()=> {
+                //video.play();
+
+            }, 1000);
+        }
+
+        createVideoSource();
+
+        //URL.revokeObjectURL(this.txPlayer.video.src);
+
+        let collectedData = [];
+
+
+
+        function addToBuffer(data) {
+            collectedData.push(data);
+            if (sourceBuffer) {
+                if (!sourceBuffer.updating) {
+                    let seg = collectedData.shift();
+                    //console.log(mediaSource.sourceBuffers[0].buffered);
+                    if (seg) {
+                        sourceBuffer.appendBuffer(seg);
+                    }
+                }
+                console.log(sourceBuffer);
+            }
+        }
+
+
+    </script>
+</html>
