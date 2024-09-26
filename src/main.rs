@@ -12,6 +12,7 @@ use poem::listener::TcpListener;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::{WebSocket, WebSocketStream} };
+use std::sync::RwLock;
 /*
 gst-launch-1.0 -e v4l2src \
     ! videoconvert ! video/x-raw, format=I420 ! x264enc key-int-max=10 ! queue  ! tee name=t ! \
@@ -24,11 +25,20 @@ gst-launch-1.0 -e v4l2src \
 #[handler]
 fn ws(
     ws: WebSocket,
-    recv: Data<& tokio::sync::broadcast::Sender<Vec<u8>>>
+    recv: Data<& tokio::sync::broadcast::Sender<Vec<u8>>>,
+    moov: Data<& Arc<RwLock<Vec<Vec<u8>>>>>
 ) -> impl IntoResponse {
     let mut receiver = recv.subscribe();
+    let moov = moov.0.read().unwrap().clone();
     ws.on_upgrade(move |socket| async move {
         let (mut sink, mut stream) = socket.split();
+        for pack in moov.iter() {
+            let data = pack.clone();
+            if sink.send(poem::web::websocket::Message::binary(data)).await.is_err() {
+                break;
+            };
+        }
+        drop(moov);
         while let Ok(msg) = receiver.recv().await {
             if sink.send(poem::web::websocket::Message::binary(msg)).await.is_err() {
                 println!("Error sending message");
@@ -49,15 +59,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let v4l2src = ElementFactory::make("v4l2src", )
         .name("v4l2src")
+        .property("device", "/dev/video1")
         //.property("num-buffers", 500)
         .build()?;
 
     let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
+    let capsfilter = ElementFactory::make("capsfilter")
+        .name("capsfilter")
+        .property("caps", gstreamer::Caps::builder("video/x-raw")
+            .field("format", "I420")
+            .build()
+        )
+        .build()?;
+
     let queue1 = ElementFactory::make_with_name("queue", Some("queue1")).unwrap();
     let x264enc = ElementFactory::make("x264enc")
         .name("x264enc")
-        .property("key-int-max", 60u32)
-        .property_from_str("tune", "zerolatency")
+        .property("key-int-max", 1u32)
+        .property("b-adapt", false)
+        .property("b-pyramid", false)
+        .property("bframes", 0u32)
+        .property_from_str("speed-preset", "ultrafast")
+        //.property_from_str("tune", "zerolatency")
         .build()?;
 
     let tee = ElementFactory::make_with_name("tee", Some("tee")).unwrap();
@@ -67,13 +90,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .name("splitmuxsink")
         .property("location", "video%02d.mkv")
         .property("max-size-time", 10_000_000_000u64)
-        .property_from_str("muxer-factory", "matroskamux")
+        .property_from_str("muxer-factory", "mp4mux")
         .property_from_str("muxer-properties", "properties,streamable=true")
         .build()?;
 
 
     let queue3 = ElementFactory::make_with_name("queue", Some("queue3")).unwrap();
-    let mpegtsmux = ElementFactory::make_with_name("mpegtsmux", Some("mpegtsmux"))?;
+    let mpegtsmux = ElementFactory::make("mp4mux")
+        .name("mp4mux")
+        .property("streamable", true)
+        .property("force-chunks", true)
+        .property("fragment-duration", 5000u32)
+        //.property("faststart", true)
+        .build()?;
+
     let udpsink = ElementFactory::make("udpsink")
         .name("udpsink")
         .property("host", "224.0.0.125")
@@ -88,32 +118,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add elements to the pipeline
     pipeline.add_many(&[
-        &v4l2src, &videoconvert, &queue1, &x264enc, &tee, &queue2, &h264parse,
+        &v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &tee, &queue2, &h264parse,
         &splitmuxsink, &queue3, &mpegtsmux, appsink.upcast_ref(),
     ])?;
 
     // Link elements in the pipeline
-    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &queue1, &x264enc, &tee])?;
+    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &tee])?;
     gstreamer::Element::link_many(&[&queue2, &h264parse, &splitmuxsink])?;
-    gstreamer::Element::link_many(&[&queue3, &mpegtsmux, &appsink.upcast_ref()])?;
+    gstreamer::Element::link_many(&[&mpegtsmux, &appsink.upcast_ref()])?;
+    println!("Static elements linked");
 
     // Link tee to other branches
     let tee_src_1 = tee.request_pad_simple("src_0").unwrap();
     let queue2_sink = queue2.static_pad("sink").unwrap();
     tee_src_1.link(&queue2_sink)?;
 
+    println!("Elements linked");
     let tee_src_2 = tee.request_pad_simple("src_1").unwrap();
     let queue3_sink = queue3.static_pad("sink").unwrap();
     tee_src_2.link(&queue3_sink)?;
 
+    let mpegts_pad = mpegtsmux.request_pad_simple("video_0").unwrap();
+    let queu_src = queue3.static_pad("src").unwrap();
+    queu_src.link(&mpegts_pad).unwrap();
+
     let (send, recv) = std::sync::mpsc::channel();
+
+    let mut framecount = 0;
 
     appsink.set_callbacks(gstreamer_app::AppSinkCallbacks::builder()
         .new_sample(move |app_sink| {
-
+            println!("New sample");
             if let Ok(sample) = app_sink.pull_sample() {
                 if let Some(buffer) = sample.buffer_owned() {
-                    send.send(buffer);
+                    println!("Sending buffer");
+                    send.send((buffer, framecount));
+                    framecount = (framecount + 1) % 2;
                     // let dts = buffer.dts();
                     // let pts = buffer.pts();
                     // let size = buffer.size();
@@ -131,26 +171,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(1024);
     let tx2 = tx.clone();
+    let moov: Arc<RwLock<Vec<Vec<u8>>>> = Arc::new(RwLock::new(Vec::new()));
+    let moov2 = Arc::clone(&moov);
+
+
     std::thread::spawn(move || {
-        let mut file = std::fs::File::create("./test.ts").unwrap();
-        let mut time = DateTime::now_local().unwrap();
         let mut pts = None;
         let mut vec = Vec::with_capacity(1024);
-        while let Ok(buffer) = recv.recv() {
-            if pts == buffer.pts() {
-                let mapa = buffer.map_readable().unwrap();
-                let mut slice = mapa.to_vec();
-                vec.append(&mut slice);
-            } else {
-                tx.send(vec.clone());
-                pts = buffer.pts();
+        let mut number_of_buffs = 0;
+        {
+            let mut moov = moov.write().unwrap();
+            while number_of_buffs < 2 {
+                if let Ok((buffer, framecount)) = recv.recv() {
+                    let mapa = buffer.map_readable().unwrap();
+                    let slice = mapa.to_vec();
 
-                // TODO send vector
-
-                vec.clear();
+                    moov.push(slice);
+                    number_of_buffs += 1;
+                } else {
+                    break;
+                }
             }
         }
+
+        while let Ok((buffer, framecount)) = recv.recv() {
+            //println!("Buffer {:?}", buffer);
+            if pts == buffer.pts() {
+                if vec.len() > 0 {
+                    tx.send(vec.clone());
+                }
+                //println!("vec len: {}", vec.len());
+                pts = buffer.pts();
+                // TODO send vector
+                vec.clear();
+            }
+            let mapa = buffer.map_readable().unwrap();
+            let mut slice = mapa.to_vec();
+            vec.append(&mut slice);
+        }
     });
+
 
     // Start playing
     pipeline.set_state(State::Playing)?;
@@ -174,7 +234,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Route::new()
         .at("/ws",
-            get(ws).data(tx2));
+            get(ws)
+            .data(tx2)
+            .data(moov2)
+        );
 
     let res = Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)
