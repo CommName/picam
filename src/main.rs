@@ -75,42 +75,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue1 = ElementFactory::make_with_name("queue", Some("queue1")).unwrap();
     let x264enc = ElementFactory::make("x264enc")
         .name("x264enc")
-        .property("key-int-max", 30u32)
+        .property("key-int-max", 1u32)
         .property("b-adapt", false)
         .property("b-pyramid", false)
         .property("bframes", 0u32)
         .property_from_str("speed-preset", "ultrafast")
         //.property_from_str("tune", "zerolatency")
         .build()?;
-    
-    let tee = ElementFactory::make_with_name("tee", Some("tee")).unwrap();
-    let queue2 = ElementFactory::make_with_name("queue", Some("queue2")).unwrap();
+
     let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse"))?;
-    let splitmuxsink = ElementFactory::make("splitmuxsink")
-        .name("splitmuxsink")
-        .property("location", "video%02d.mkv")
-        .property("max-size-time", 10_000_000_000u64)
-        .property_from_str("muxer-factory", "mp4mux")
-        .property_from_str("muxer-properties", "properties,streamable=true")
-        .build()?;
-    
-    
-    let queue3 = ElementFactory::make_with_name("queue", Some("queue3")).unwrap();
+
     let mpegtsmux = ElementFactory::make("mp4mux")
         .name("mp4mux")
         .property("streamable", true)
         .property("force-chunks", true)
         .property("fragment-duration", 1u32)
         //.property_from_str("fragment-mode", "first-moov-then-finalise")
-        //.property("faststart", true)
+        .property("faststart", true)
         .build()?;
-
-    let udpsink = ElementFactory::make("udpsink")
-        .name("udpsink")
-        .property("host", "224.0.0.125")
-        .property("port", 5000)
-        .build()
-        .unwrap();
 
     let appsink = AppSink::builder()
         .name("app_sink")
@@ -119,29 +101,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add elements to the pipeline
     pipeline.add_many(&[
-        &v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &tee, &queue2, &h264parse,
-        &splitmuxsink, &queue3, &mpegtsmux, appsink.upcast_ref(),
+        &v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &h264parse, &mpegtsmux, appsink.upcast_ref(),
     ])?;
 
     // Link elements in the pipeline
-    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &tee])?;
-    gstreamer::Element::link_many(&[&queue2, &h264parse, &splitmuxsink])?;
-    gstreamer::Element::link_many(&[&mpegtsmux, &appsink.upcast_ref()])?;
-    println!("Static elements linked");
-
-    // Link tee to other branches
-    let tee_src_1 = tee.request_pad_simple("src_0").unwrap();
-    let queue2_sink = queue2.static_pad("sink").unwrap();
-    tee_src_1.link(&queue2_sink)?;
-
-    let tee_src_2 = tee.request_pad_simple("src_1").unwrap();
-    let queue3_sink = queue3.static_pad("sink").unwrap();
-    tee_src_2.link(&queue3_sink)?;
-    
-    let mpegts_pad = mpegtsmux.request_pad_simple("video_0").unwrap();
-    let queu_src = queue3.static_pad("src").unwrap();
-    queu_src.link(&mpegts_pad).unwrap();
-    println!("Elements linked");
+    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &h264parse, &mpegtsmux, &appsink.upcast_ref()])?;
 
     let (send, recv) = std::sync::mpsc::channel();
 
@@ -156,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // let dts = buffer.dts();
                     // let pts = buffer.pts();
                     // let size = buffer.size();
-                    
+
                     // let mapa = buffer.map_readable().unwrap();
                     // let slice = mapa.to_vec();
                     // let size: usize = slice.len();
