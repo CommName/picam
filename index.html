@@ -11,6 +11,18 @@
         let video = document.getElementById('player');
         let sourceBuffer = null;
 
+        video.ontimeupdate = () => {
+            let length = sourceBuffer.buffered.length;
+            let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
+            if (seconds - video.currentTime > 5) {
+                video.playbackRate = 1.5;
+            } else if (seconds - video.currentTime < 1.5) {
+                video.playbackRate = 0.25;
+            } else {
+                video.playbackRate = 1.0;
+            }
+        }
+
         function createVideoSource() {
             mediaSource = new MediaSource();
             video.src = URL.createObjectURL(mediaSource);
@@ -36,18 +48,16 @@
             sourceBuffer.addEventListener("updateend", () => {
                 //mediaSource.endOfStream();
                 //video.play();
-                console.log("Update end:", mediaSource); // ended
+                //sourceBuffer.timestampOffset = 0;
+
             });
 
             
 
 
-        const socket = new WebSocket("ws://localhost:3000/ws");
+            const socket = new WebSocket("ws://localhost:3000/ws");
 
-            // Connection opened
             socket.addEventListener("open", (event) => {
-                console.log("Connection opended");
-              //socket.send("Hello Server!");
             });
 
             // Listen for messages
@@ -60,11 +70,6 @@
             //    "updateend",
             //    onBufferUpdateCallback
             //);
-
-            setTimeout(()=> {
-                //video.play();
-
-            }, 1000);
         }
 
         createVideoSource();
@@ -72,8 +77,6 @@
         //URL.revokeObjectURL(this.txPlayer.video.src);
 
         let collectedData = [];
-
-
 
         function addToBuffer(data) {
             collectedData.push(data);
@@ -85,7 +88,6 @@
                         sourceBuffer.appendBuffer(seg);
                     }
                 }
-                console.log(sourceBuffer);
             }
         }
 
