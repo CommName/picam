@@ -1,3 +1,4 @@
+use std::env::var;
 use std::io::Write;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -13,14 +14,10 @@ use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::{WebSocket, WebSocketStream} };
 use std::sync::RwLock;
-/*
-gst-launch-1.0 -e v4l2src \
-    ! videoconvert ! video/x-raw, format=I420 ! x264enc key-int-max=10 ! queue  ! tee name=t ! \
-    queue ! h264parse ! splitmuxsink location=video%02d.mkv max-size-time=10000000000 muxer-factory=matroskamux muxer-properties="properties,streamable=true" \
-    t. ! queue ! mpegtsmux ! udpsink host=224.0.0.4 port=5000
 
-*/
 
+mod video;
+mod file_sink;
 
 #[handler]
 fn ws(
@@ -48,92 +45,24 @@ fn ws(
     })
 }
 
+pub enum StateOfMp4 {
+    moof,
+    mdat,
+    data,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer
     gstreamer::init()?;
 
-    // Create the elements
-    let pipeline = Pipeline::new();
-
-    let v4l2src = ElementFactory::make("v4l2src", )
-        .name("v4l2src")
-        //.property("device", "/dev/video1")
-        //.property("num-buffers", 500)
-        .build()?;
-
-    let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
-    let capsfilter = ElementFactory::make("capsfilter")
-        .name("capsfilter")
-        .property("caps", gstreamer::Caps::builder("video/x-raw")
-            .field("format", "I420")
-            .build()
-        )
-        .build()?;
-
-    let queue1 = ElementFactory::make_with_name("queue", Some("queue1")).unwrap();
-    let x264enc = ElementFactory::make("x264enc")
-        .name("x264enc")
-        .property("key-int-max", 1u32)
-        .property("b-adapt", false)
-        .property("b-pyramid", false)
-        .property("bframes", 0u32)
-        .property_from_str("speed-preset", "ultrafast")
-        //.property_from_str("tune", "zerolatency")
-        .build()?;
-
-    let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse"))?;
-
-    let mpegtsmux = ElementFactory::make("mp4mux")
-        .name("mp4mux")
-        .property("streamable", true)
-        .property("force-chunks", true)
-        .property("fragment-duration", 1u32)
-        //.property_from_str("fragment-mode", "first-moov-then-finalise")
-        .property("faststart", true)
-        .build()?;
-
-    let appsink = AppSink::builder()
-        .name("app_sink")
-        .build();
-
-
-    // Add elements to the pipeline
-    pipeline.add_many(&[
-        &v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &h264parse, &mpegtsmux, appsink.upcast_ref(),
-    ])?;
-
-    // Link elements in the pipeline
-    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &queue1, &x264enc, &h264parse, &mpegtsmux, &appsink.upcast_ref()])?;
-
     let (send, recv) = std::sync::mpsc::channel();
+    let pipeline = video::build_gstreamer_pipline(send)?;
 
-    let mut framecount = 0;
-
-    appsink.set_callbacks(gstreamer_app::AppSinkCallbacks::builder()
-        .new_sample(move |app_sink| {
-            if let Ok(sample) = app_sink.pull_sample() {
-                if let Some(buffer) = sample.buffer_owned() {
-                    send.send((buffer, framecount));
-                    framecount = (framecount + 1) % 2;
-                    // let dts = buffer.dts();
-                    // let pts = buffer.pts();
-                    // let size = buffer.size();
-
-                    // let mapa = buffer.map_readable().unwrap();
-                    // let slice = mapa.to_vec();
-                    // let size: usize = slice.len();
-                    // println!("DTS: {dts:?} PTS: {pts:?} SIZE: {size}");
-                }
-            }
-            
-            Ok(FlowSuccess::Ok)
-        }).build()
-    );
 
     let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(1024);
     let tx2 = tx.clone();
+
     let moov: Arc<RwLock<Vec<Vec<u8>>>> = Arc::new(RwLock::new(Vec::new()));
     let moov2 = Arc::clone(&moov);
 
@@ -143,9 +72,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut vec = Vec::with_capacity(1024);
         let mut number_of_buffs = 0;
         {
+            println!("Starting header");
             let mut moov = moov.write().unwrap();
             while number_of_buffs < 2 {
-                if let Ok((buffer, framecount)) = recv.recv() {
+                if let Ok(buffer) = recv.recv() {
                     let mapa = buffer.map_readable().unwrap();
                     let slice = mapa.to_vec();
 
@@ -157,27 +87,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        while let Ok((buffer, framecount)) = recv.recv() {
-            //println!("Buffer {:?}", buffer);
-            if false && pts == buffer.dts() {
-                if vec.len() > 0 {
-                }
-                tx.send(vec.clone());
-                println!("pts: {:?}", pts);
-                pts = buffer.dts();
-                // TODO send vector
-                vec.clear();
-            }
+        println!("Started recv");
+        let mut state = StateOfMp4::moof;
+        while let Ok(buffer) = recv.recv() {
+
+            println!("pts: {:?}", pts);
+            pts = buffer.dts();
+
             let mapa = buffer.map_readable().unwrap();
             let mut slice = mapa.to_vec();
-            tx.send(slice);
-            //vec.append(&mut slice);
+            //println!("Buffer {:?}", buffer);
+            // moof 6d6f 6f66
+            // mdat 6d64 6174
+
+            if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
+                tx.send(vec.clone());
+                // TODO send vector
+                vec.clear();
+
+            }
+
+            vec.append(&mut slice);
+
         }
     });
 
 
     // Start playing
     pipeline.set_state(State::Playing)?;
+    println!("Pipline started");
 
     // // Wait until error or EOS
     // let bus = pipeline.bus().unwrap();

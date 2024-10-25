@@ -3,7 +3,7 @@
     </head>
     <body>
         Hello world
-        <video id="player" autoplay controls></video>
+        <video style="width: 50%; height: 50%;" id="player" autoplay controls></video>
     </body>
     <script>
 
@@ -12,15 +12,19 @@
         let sourceBuffer = null;
 
         video.ontimeupdate = () => {
-            let length = sourceBuffer.buffered.length;
-            let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
-            if (seconds - video.currentTime > 5) {
-                video.playbackRate = 1.5;
-            } else if (seconds - video.currentTime < 1.5) {
-                video.playbackRate = 0.25;
-            } else {
-                video.playbackRate = 1.0;
-            }
+            if (sourceBuffer) {
+
+                let length = sourceBuffer.buffered.length;
+                let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
+                if (seconds - video.currentTime > 5) {
+                    video.playbackRate = 1.5;
+                } else if (seconds - video.currentTime < 0.75) {
+                    video.playbackRate = 0.25;
+                } else {
+                    console.log("REAL TIME");
+                    video.playbackRate = 1.0;
+                }
+            } 
         }
 
         function createVideoSource() {
@@ -66,15 +70,9 @@
                 addToBuffer(data);
             });
 
-            //sourceBuffer.addEventListener(
-            //    "updateend",
-            //    onBufferUpdateCallback
-            //);
         }
 
         createVideoSource();
-
-        //URL.revokeObjectURL(this.txPlayer.video.src);
 
         let collectedData = [];
 
@@ -83,7 +81,6 @@
             if (sourceBuffer) {
                 if (!sourceBuffer.updating) {
                     let seg = collectedData.shift();
-                    //console.log(mediaSource.sourceBuffers[0].buffered);
                     if (seg) {
                         sourceBuffer.appendBuffer(seg);
                     }
