@@ -1,12 +1,13 @@
 use std::env::var;
 use std::io::Write;
 use std::ops::Deref;
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use byte_slice_cast::AsByteSlice;
 use futures_util::{SinkExt, StreamExt};
 use glib::DateTime;
-use gstreamer::{prelude::*, FlowSuccess, Message, Sample};
+use gstreamer::{prelude::*, Buffer, FlowSuccess, Message, Sample};
 use gstreamer::{ElementFactory, Pipeline, State, StateChangeSuccess};
 use gstreamer_app::AppSink;
 use poem::listener::TcpListener;
@@ -46,6 +47,22 @@ fn ws(
     })
 }
 
+pub fn get_moov_header(recv: &Receiver<Buffer>) -> Arc<Vec<Vec<u8>>> {
+    let mut moov: Vec<Vec<u8>> = Vec::new();
+    let mut number_of_buffs = 0;
+    while number_of_buffs < 2 {
+        if let Ok(buffer) = recv.recv() {
+            let mapa = buffer.map_readable().unwrap();
+            let slice = mapa.to_vec();
+            moov.push(slice);
+            number_of_buffs += 1;
+        } else {
+            break;
+        }
+    }
+    Arc::new(moov)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer
@@ -64,21 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pipeline.set_state(State::Playing)?;
     println!("Pipline started");
     
-    let mut moov: Vec<Vec<u8>> = Vec::new();
-    println!("Saving header");
-    let mut number_of_buffs = 0;
-    while number_of_buffs < 2 {
-        if let Ok(buffer) = recv.recv() {
-            let mapa = buffer.map_readable().unwrap();
-            let slice = mapa.to_vec();
-            moov.push(slice);
-            number_of_buffs += 1;
-        } else {
-            break;
-        }
-    }
-    let moov = Arc::new(moov);
-
+    let moov = get_moov_header(&recv);
 
     std::thread::spawn(move || {
         let mut pts = None;
