@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::{Receiver, Sender}};
 
 
@@ -18,15 +20,21 @@ struct State {
 
 }
 
-pub async  fn file_saver(mut recv: Receiver<Vec<u8>>, moov: &Vec<u8>) {
+pub async  fn file_saver(mut recv: Receiver<Vec<u8>>, moov: Arc<Vec<Vec<u8>>>) {
 
     let mut file = generate_new_file().await;
-    file.write(&moov).await;
+    save_moov_header(&moov, &mut file).await;
 
     while let Ok(bytes) = recv.recv().await {
-        
+        file.write(&bytes).await;
     }
 
+}
+
+pub async fn save_moov_header(moov: &Arc<Vec<Vec<u8>>>, file: &mut File) {
+    for header in moov.iter() {
+        file.write(&header).await;
+    }
 }
 
 pub async fn generate_new_file() -> File {

@@ -108,6 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let moov2 = Arc::clone(&moov);
+    let file_sink_subscirber = tx2.subscribe();
+    tokio::spawn(async move {
+        file_sink::file_saver(file_sink_subscirber, moov2).await;
+    });
+
 
 
     let app = Route::new()
