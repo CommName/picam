@@ -1,21 +1,12 @@
-use std::env::var;
-use std::io::Write;
-use std::ops::Deref;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
-use byte_slice_cast::AsByteSlice;
 use futures_util::{SinkExt, StreamExt};
-use glib::DateTime;
-use gstreamer::{prelude::*, Buffer, FlowSuccess, Message, Sample};
-use gstreamer::{ElementFactory, Pipeline, State, StateChangeSuccess};
-use gstreamer_app::AppSink;
+use gstreamer::{prelude::*, Buffer,State};
 use poem::listener::TcpListener;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
-use poem::{handler, web::websocket::{WebSocket, WebSocketStream} };
-use std::sync::RwLock;
-
+use poem::{handler, web::websocket::WebSocket};
 
 mod video;
 mod file_sink;
@@ -30,7 +21,7 @@ fn ws(
 
     let moov = Arc::clone(moov);
     ws.on_upgrade(move |socket| async move {
-        let (mut sink, mut stream) = socket.split();
+        let (mut sink, _) = socket.split();
         for pack in moov.iter() {
             let data = pack.clone();
             if sink.send(poem::web::websocket::Message::binary(data)).await.is_err() {
@@ -98,7 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut slice = mapa.to_vec();
             // moof 6d6f 6f66
             if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
-                tx.send(vec.clone());
+                if let Err(_) = tx.send(vec.clone()) {
+                    // TODO log and handle error
+                }
                 vec.clear();
 
             }
@@ -123,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .data(moov)
         );
 
-    let res = Server::new(TcpListener::bind("0.0.0.0:3000"))
+    let _ = Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)
         .await;
 

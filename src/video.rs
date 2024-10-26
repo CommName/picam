@@ -78,7 +78,9 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>) -> Result<Pipeline, glib::B
         .new_sample(move |app_sink| {
             if let Ok(sample) = app_sink.pull_sample() {
                 if let Some(buffer) = sample.buffer_owned() {
-                    send.send(buffer);
+                    if let Err(_) = send.send(buffer) {
+                        // TODO log and handle error
+                    }
                 }
             }
             
