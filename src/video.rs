@@ -36,7 +36,7 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>) -> Result<Pipeline, glib::B
 
     let x264enc = ElementFactory::make("x264enc")
         .name("x264enc")
-        .property("key-int-max", 1u32)
+        .property("key-int-max", 60u32)
         .property("b-adapt", false)
         .property("b-pyramid", false)
         .property("bframes", 0u32)

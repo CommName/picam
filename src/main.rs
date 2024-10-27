@@ -2,7 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
-use gstreamer::{prelude::*, Buffer,State};
+use gstreamer::{prelude::*, Buffer, BufferFlags, State};
 use poem::listener::TcpListener;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
@@ -14,7 +14,7 @@ mod file_sink;
 #[handler]
 fn ws(
     ws: WebSocket,
-    recv: Data<& tokio::sync::broadcast::Sender<Vec<u8>>>,
+    recv: Data<& tokio::sync::broadcast::Sender<Arc<ParsedBuffer>>>,
     Data(moov): Data<&Arc<Vec<Vec<u8>>>>
 ) -> impl IntoResponse {
     let mut receiver = recv.subscribe();
@@ -29,9 +29,17 @@ fn ws(
             };
         }
         drop(moov);
+        // Start with IFrame
         while let Ok(msg) = receiver.recv().await {
-            if sink.send(poem::web::websocket::Message::binary(msg)).await.is_err() {
-                println!("Error sending message");
+            if msg.i_frame {
+                if sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await.is_err() {
+                    return;
+                }
+                break;
+            }
+        }
+        while let Ok(msg) = receiver.recv().await {
+            if sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await.is_err() {
                 break;
             }
         }
@@ -54,6 +62,11 @@ pub fn get_moov_header(recv: &Receiver<Buffer>) -> Arc<Vec<Vec<u8>>> {
     Arc::new(moov)
 }
 
+pub struct ParsedBuffer {
+    data: Vec<u8>,
+    i_frame: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer
@@ -63,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pipeline = video::build_gstreamer_pipline(send)?;
 
 
-    let (tx, _) = tokio::sync::broadcast::channel::<Vec<u8>>(1024);
+    let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
     let tx2 = tx.clone();
 
     
@@ -80,20 +93,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
         println!("Started recv");
+        let mut key_frame = true;
         while let Ok(buffer) = recv.recv() {
+            
 
             println!("pts: {:?}", pts);
             pts = buffer.dts();
 
             let mapa = buffer.map_readable().unwrap();
             let mut slice = mapa.to_vec();
+
+            // Check for I FRAME
+            if buffer.flags().iter().any(|f| {
+                BufferFlags::DELTA_UNIT == f
+            }) {
+                key_frame = false;
+            };
+
             // moof 6d6f 6f66
             if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
-                if let Err(_) = tx.send(vec.clone()) {
+                if let Err(_) = tx.send(Arc::new(ParsedBuffer {
+                    data: vec.clone(),
+                    i_frame: key_frame
+                })) {
                     // TODO log and handle error
                 }
                 vec.clear();
-
+                key_frame = true;
             }
 
             vec.append(&mut slice);
