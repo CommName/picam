@@ -4,6 +4,8 @@ use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::Receiver};
 
 use crate::ParsedBuffer;
 
+const CREATE_NEW_FILE_THRESHOLD: u64 = 30;
+
 
 pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<Vec<Vec<u8>>>) {
 
@@ -12,7 +14,17 @@ pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<Vec<Ve
         // TODO log and handle error
     }
 
+    let mut timestamp_when_file_is_created = 0;
+
     while let Ok(buffer) = recv.recv().await {
+        if buffer.key_frame && should_create_new_file(&buffer,&mut timestamp_when_file_is_created) {
+            // TODO: rotate file
+
+            file = generate_new_file().await;
+            if let Err(_) = save_moov_header(&moov, &mut file).await {
+                // TODO log and handle error
+            }
+        }
         if let Err(_ ) = file.write(&buffer.data).await {
             // TODO log error and create new file
         }
@@ -20,19 +32,30 @@ pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<Vec<Ve
 
 }
 
+fn should_create_new_file(buffer: &Arc<ParsedBuffer>, base_timestamp: &mut u64) -> bool {
+    if let Some(ref timestamp) = buffer.timestamp {
+        let ts = timestamp.seconds();
+        if ts.abs_diff(*base_timestamp) > CREATE_NEW_FILE_THRESHOLD {
+            *base_timestamp = ts;
+            return  true;
+        }
+    }
 
-pub async fn save_moov_header(moov: &Arc<Vec<Vec<u8>>>, file: &mut File) -> Result<(), std::io::Error> {
+    false
+}
+
+async fn save_moov_header(moov: &Arc<Vec<Vec<u8>>>, file: &mut File) -> Result<(), std::io::Error> {
     for header in moov.iter() {
         file.write(&header).await?;
     }
     Ok(())
 }
 
-pub fn generate_file_name() -> String {
+fn generate_file_name() -> String {
     format!("{}.mp4", chrono::Local::now())
 }
 
-pub async fn generate_new_file() -> File {
+async fn generate_new_file() -> File {
     let file_name = generate_file_name();
     let file_path = std::path::PathBuf::from_str(&format!("./{file_name}")).unwrap();
     File::create_new(file_path)

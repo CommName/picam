@@ -2,7 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
-use gstreamer::{prelude::*, Buffer, BufferFlags, State};
+use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
 use poem::listener::TcpListener;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
@@ -31,7 +31,7 @@ fn ws(
         drop(moov);
         // Start with IFrame
         while let Ok(msg) = receiver.recv().await {
-            if msg.i_frame {
+            if msg.key_frame {
                 if sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await.is_err() {
                     return;
                 }
@@ -64,7 +64,8 @@ pub fn get_moov_header(recv: &Receiver<Buffer>) -> Arc<Vec<Vec<u8>>> {
 
 pub struct ParsedBuffer {
     data: Vec<u8>,
-    i_frame: bool,
+    key_frame: bool,
+    timestamp: Option<ClockTime>
 }
 
 #[tokio::main]
@@ -88,17 +89,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let moov = get_moov_header(&recv);
 
     std::thread::spawn(move || {
-        let mut pts = None;
         let mut vec = Vec::with_capacity(1024);
 
 
         println!("Started recv");
         let mut key_frame = true;
+        let mut timestamp = None;
         while let Ok(buffer) = recv.recv() {
             
-
-            println!("pts: {:?}", pts);
-            pts = buffer.dts();
+            if let Some(pts) = buffer.pts() {
+                let _ = timestamp.insert(pts);
+            }
 
             let mapa = buffer.map_readable().unwrap();
             let mut slice = mapa.to_vec();
@@ -114,12 +115,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
                 if let Err(_) = tx.send(Arc::new(ParsedBuffer {
                     data: vec.clone(),
-                    i_frame: key_frame
+                    key_frame,
+                    timestamp
                 })) {
                     // TODO log and handle error
                 }
                 vec.clear();
                 key_frame = true;
+                timestamp.take();
             }
 
             vec.append(&mut slice);
