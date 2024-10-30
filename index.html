@@ -1,9 +1,21 @@
 <html>
     <head>
+        <link rel="stylesheet" href="pico.css" />
     </head>
-    <body>
-        Hello world
-        <video style="width: 50%; height: 50%;" id="player" autoplay controls></video>
+    <body st>
+        <header class="container">
+            <hgroup>
+                <h1> PICam </h1>
+            </hgroup>
+            <div class="grid">
+                <button>Live</button>
+                <button class="secondary">Archive</button>
+            </div>
+        </header>
+        <main class="container">
+            <video style="width: 100%;" id="player" autoplay></video>
+            <progress id="progress"></progress>
+        </main>
     </body>
     <script>
 
@@ -13,6 +25,7 @@
 
         video.ontimeupdate = () => {
             if (sourceBuffer) {
+                document.getElementById("progress").style.visibility = "hidden";
 
                 let length = sourceBuffer.buffered.length;
                 let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
@@ -21,7 +34,6 @@
                 } else if (seconds - video.currentTime < 0.75) {
                     video.playbackRate = 0.25;
                 } else {
-                    console.log("REAL TIME");
                     video.playbackRate = 1.0;
                 }
             } 
@@ -37,32 +49,26 @@
         let opend = false;
 
         function onSourceOpen() {
-            console.log("Adding new buffer: ", mediaSource.readyState);
             if (opend) {
                 return;
             }
             opend = true;
 
             let codec = 'video/mp4; codecs="avc1.42E01e"';
-            if (MediaSource.isTypeSupported(codec)) {
-                console.log("Codec supported");
+            if (!MediaSource.isTypeSupported(codec)) {
+                console.error("Codec not supported");
+                return;
             }
             sourceBuffer = mediaSource.addSourceBuffer(codec);
             sourceBuffer.mode = "sequence";
             sourceBuffer.addEventListener("updateend", () => {
-                //mediaSource.endOfStream();
-                //video.play();
-                //sourceBuffer.timestampOffset = 0;
 
             });
 
-            
 
 
             const socket = new WebSocket("ws://localhost:3000/ws");
 
-            socket.addEventListener("open", (event) => {
-            });
 
             // Listen for messages
             socket.addEventListener("message", async (event) => {
