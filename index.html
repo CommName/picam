@@ -1,91 +1,103 @@
 <html>
-    <head>
-        <link rel="stylesheet" href="pico.css" />
-    </head>
-    <body st>
-        <header class="container">
-            <hgroup>
-                <h1> PICam </h1>
-            </hgroup>
-            <div class="grid">
-                <button>Live</button>
-                <button class="secondary">Archive</button>
-            </div>
-        </header>
-        <main class="container">
-            <video style="width: 100%;" id="player" autoplay></video>
-            <progress id="progress"></progress>
-        </main>
-    </body>
-    <script>
 
-        let mediaSource = null;
-        let video = document.getElementById('player');
-        let sourceBuffer = null;
+<head>
+    <link rel="stylesheet" href="pico.css" />
+</head>
 
-        video.ontimeupdate = () => {
-            if (sourceBuffer) {
-                document.getElementById("progress").style.visibility = "hidden";
+<body st>
+    <header class="container">
+        <hgroup>
+            <h1> PICam </h1>
+        </hgroup>
+        <div class="grid">
+            <button id="goToLivePageButton" onclick="goToLivePage()">Live</button>
+            <button id="goToArchivePageButton" class="secondary" onclick="goToArchivePage()">Archive</button>
+        </div>
+    </header>
+    <main class="container">
+        <video style="width: 100%;" id="player" autoplay></video>
+        <progress id="progress"></progress>
+    </main>
+</body>
+<script>
+    let video = document.getElementById('player');
+    let mediaSource = null;
+    let sourceBuffer = null;
+    let socket = null;
+    let collectedData = [];
+    let opened = false;
 
-                let length = sourceBuffer.buffered.length;
-                let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
-                if (seconds - video.currentTime > 5) {
-                    video.playbackRate = 1.5;
-                } else if (seconds - video.currentTime < 0.75) {
-                    video.playbackRate = 0.25;
-                } else {
-                    video.playbackRate = 1.0;
-                }
-            } 
-        }
-
-        function createVideoSource() {
-            mediaSource = new MediaSource();
-            video.src = URL.createObjectURL(mediaSource);
-
-            mediaSource.addEventListener("sourceopen", this.onSourceOpen);
-            video.load();
-        }
-        let opend = false;
-
-        function onSourceOpen() {
-            if (opend) {
-                return;
-            }
-            opend = true;
-
-            let codec = 'video/mp4; codecs="avc1.42E01e"';
-            if (!MediaSource.isTypeSupported(codec)) {
-                console.error("Codec not supported");
-                return;
-            }
-            sourceBuffer = mediaSource.addSourceBuffer(codec);
-            sourceBuffer.mode = "sequence";
-            sourceBuffer.addEventListener("updateend", () => {
-
-            });
-
-
-
-            const socket = new WebSocket("ws://localhost:3000/ws");
-
-
-            // Listen for messages
-            socket.addEventListener("message", async (event) => {
-                let data = await event.data.arrayBuffer();
-                addToBuffer(data);
-            });
-
-        }
-
+    function goToLivePage() {
+        document.getElementById("goToLivePageButton").className = "";
+        document.getElementById("goToArchivePageButton").className = "secondary";
+        document.getElementById("progress").style.visibility = "visible";
         createVideoSource();
+    }
 
-        let collectedData = [];
+    function goToArchivePage() {
+        document.getElementById("goToLivePageButton").className = "secondary";
+        document.getElementById("goToArchivePageButton").className = "";
+
+        if (socket != null) {
+            socket.close(1000);
+        }
+        video.removeAttribute('src'); // empty source
+        video.load();
+        if (mediaSource != null) {
+            delete mediaSource;
+            mediaSource = null;
+        }
+        document.getElementById("progress").style.visibility = "hidden";
+    }
+
+    video.ontimeupdate = () => {
+        if (sourceBuffer) {
+            document.getElementById("progress").style.visibility = "hidden";
+
+            let length = sourceBuffer.buffered.length;
+            let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
+            if (seconds - video.currentTime > 5) {
+                video.playbackRate = 1.5;
+            } else if (seconds - video.currentTime < 0.75) {
+                video.playbackRate = 0.25;
+            } else {
+                video.playbackRate = 1.0;
+            }
+        }
+    }
+
+    function createVideoSource() {
+        opened = false;
+        mediaSource = new MediaSource();
+        mediaSource.addEventListener("sourceopen", this.onSourceOpen);
+        
+        video.src = URL.createObjectURL(mediaSource);
+        video.load();
+    }
+
+
+    function onSourceOpen() {
+
+        if (opened) {
+            return;
+        }
+        opened = true;
+
+        let codec = 'video/mp4; codecs="avc1.42E01e"';
+        if (!MediaSource.isTypeSupported(codec)) {
+            console.error("Codec not supported");
+            return;
+        }
+        sourceBuffer = mediaSource.addSourceBuffer(codec);
+        sourceBuffer.mode = "sequence";
+        sourceBuffer.addEventListener("updateend", () => {
+
+        });
 
         function addToBuffer(data) {
             collectedData.push(data);
             if (sourceBuffer) {
-                if (!sourceBuffer.updating) {
+                while(!sourceBuffer.updating) {
                     let seg = collectedData.shift();
                     if (seg) {
                         sourceBuffer.appendBuffer(seg);
@@ -95,5 +107,21 @@
         }
 
 
-    </script>
+        // Open websocket
+        socket = new WebSocket("ws://localhost:3000/ws");
+
+        socket.addEventListener("message", async (event) => {
+            let data = await event.data.arrayBuffer();
+            addToBuffer(data);
+        });
+
+    }
+
+    createVideoSource();
+
+
+
+
+</script>
+
 </html>
