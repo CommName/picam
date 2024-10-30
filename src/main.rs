@@ -7,7 +7,9 @@ use poem::listener::TcpListener;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
+use poem_openapi::OpenApiService;
 
+mod api_handlers;
 mod video;
 mod file_sink;
 
@@ -45,6 +47,7 @@ fn ws(
         }
     })
 }
+
 
 pub fn get_moov_header(recv: &Receiver<Buffer>) -> Arc<Vec<Vec<u8>>> {
     let mut moov: Vec<Vec<u8>> = Vec::new();
@@ -138,12 +141,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 
+    let api_service =
+        OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:3000");
+
     let app = Route::new()
         .at("/ws",
             get(ws)
             .data(tx2)
             .data(moov)
-        );
+        )
+        .nest("/api", api_service);
 
     let _ = Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)

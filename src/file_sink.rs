@@ -4,9 +4,16 @@ use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::Receiver};
 
 use crate::ParsedBuffer;
 
-const CREATE_NEW_FILE_THRESHOLD: u64 = 2;
-const MAX_NUMBER_OF_FILES: u64 = 3; // 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
-const APP_DATA_PATH: &str = "./";
+const CREATE_NEW_FILE_THRESHOLD: u64 = 5 * 60;
+const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
+pub const APP_DATA_PATH: &str = "./";
+
+
+pub struct FileSinkConfig {
+    app_data: String,
+    max_file_duration: Option<u64>,
+    max_number_of_file: Option<u64>
+}
 
 pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<Vec<Vec<u8>>>) {
 
