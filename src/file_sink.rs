@@ -6,7 +6,7 @@ use crate::ParsedBuffer;
 
 const CREATE_NEW_FILE_THRESHOLD: u64 = 5 * 60;
 const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
-pub const APP_DATA_PATH: &str = "./";
+pub const APP_DATA_PATH: &str = "./app_data";
 
 
 pub struct FileSinkConfig {

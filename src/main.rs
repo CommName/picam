@@ -4,6 +4,7 @@ use std::sync::Arc;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
 use poem::listener::TcpListener;
+use poem::web::websocket::Message;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
@@ -23,7 +24,7 @@ fn ws(
 
     let moov = Arc::clone(moov);
     ws.on_upgrade(move |socket| async move {
-        let (mut sink, _) = socket.split();
+        let (mut sink, mut stream) = socket.split();
         for pack in moov.iter() {
             let data = pack.clone();
             if sink.send(poem::web::websocket::Message::binary(data)).await.is_err() {
@@ -32,19 +33,48 @@ fn ws(
         }
         drop(moov);
         // Start with IFrame
-        while let Ok(msg) = receiver.recv().await {
-            if msg.key_frame {
-                if sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await.is_err() {
-                    return;
+        let mut iframe_sent = false;
+        loop {
+            tokio::select! {
+                msg = receiver.recv() => {
+                    if let Ok(msg) = msg {
+
+                        if let Err(_) = if iframe_sent {
+                            sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await
+                        } else {
+                            if msg.key_frame {
+                                iframe_sent = true;
+                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await
+                            } else {
+                                continue;
+                            }
+                        } {
+                            // Error sending a message
+                            let _ = sink.close();
+                            return;
+                        }
+                        
+                    }
+            },
+                msg = stream.next() => {
+                    if let Some(Ok(msg)) = msg {
+                        match msg {
+                            Message::Ping(bytes) => {
+                                let _ = sink.send(Message::Pong(bytes)).await;
+                            },
+                            Message::Close(status_code) => {
+                                let _ = sink.send(Message::Close(status_code));
+                                let _ = sink.close();
+                                return;
+                            },
+                            _ => {}
+                        }
+                    }    
                 }
-                break;
             }
         }
-        while let Ok(msg) = receiver.recv().await {
-            if sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await.is_err() {
-                break;
-            }
-        }
+
+
     })
 }
 
