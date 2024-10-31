@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
+use poem::http::Method;
 use poem::listener::TcpListener;
+use poem::middleware::Cors;
 use poem::web::websocket::Message;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
@@ -38,7 +40,6 @@ fn ws(
             tokio::select! {
                 msg = receiver.recv() => {
                     if let Ok(msg) = msg {
-
                         if let Err(_) = if iframe_sent {
                             sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await
                         } else {
@@ -169,6 +170,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         file_sink::file_saver(file_sink_subscirber, moov2).await;
     });
 
+    let cors = Cors::new()
+        .allow_method(Method::GET)
+        .allow_method(Method::POST)
+        .allow_origin_regex("*");
+
 
 
     let api_service =
@@ -180,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .data(tx2)
             .data(moov)
         )
-        .nest("/api", api_service);
+        .nest("/api", api_service).with(cors);
 
     let _ = Server::new(TcpListener::bind("0.0.0.0:3000"))
         .run(app)
