@@ -15,9 +15,9 @@
         </div>
     </header>
     <main class="container">
-        <div class="container" id="archive">
-            <details class="dropdown">
-                <summary role="button" class="secondary">Select archive</summary>
+        <div style="visibility: hidden;" class="container" id="archive">
+            <details id="selectArchiveButton" class="dropdown">
+                <summary  role="button" class="secondary">Select archive</summary>
                 <ul id="archiveList">
                 </ul>
               </details>
@@ -38,6 +38,7 @@
         document.getElementById("goToLivePageButton").className = "";
         document.getElementById("goToArchivePageButton").className = "secondary";
         document.getElementById("progress").style.visibility = "visible";
+        document.getElementById("archive").style.visibility = "hidden";
         removeVideoSrc();
         createVideoSource();
     }
@@ -51,6 +52,7 @@
         }
         removeVideoSrc();
         document.getElementById("progress").style.visibility = "hidden";
+        document.getElementById("archive").style.visibility = "visible";
         refreshArchive();
     }
 
@@ -68,6 +70,13 @@
                     link.innerHTML = recording;
                     listElement.appendChild(link);
                     list.appendChild(listElement);
+                    listElement.addEventListener("click", (event) => {
+                        event.preventDefault();
+                        document.getElementById("selectArchiveButton").removeAttribute("open");
+                        removeVideoSrc();
+                        video.src = "http://localhost:3000/api/recordings/"+recording;
+                        video.load();
+                    })
                 });
             }
         };
