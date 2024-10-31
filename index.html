@@ -15,6 +15,13 @@
         </div>
     </header>
     <main class="container">
+        <div class="container" id="archive">
+            <details class="dropdown">
+                <summary role="button" class="secondary">Select archive</summary>
+                <ul id="archiveList">
+                </ul>
+              </details>
+        </div>
         <video style="width: 100%;" id="player" autoplay></video>
         <progress id="progress"></progress>
     </main>
@@ -31,6 +38,7 @@
         document.getElementById("goToLivePageButton").className = "";
         document.getElementById("goToArchivePageButton").className = "secondary";
         document.getElementById("progress").style.visibility = "visible";
+        removeVideoSrc();
         createVideoSource();
     }
 
@@ -41,13 +49,39 @@
         if (socket != null) {
             socket.close(1000);
         }
-        video.removeAttribute('src'); // empty source
+        removeVideoSrc();
+        document.getElementById("progress").style.visibility = "hidden";
+        refreshArchive();
+    }
+
+    function refreshArchive() {
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+                let archive = JSON.parse(xhttp.responseText);
+                let list = document.getElementById("archiveList");
+                list.innerHTML = "";
+
+                archive.forEach(recording => {
+                    let listElement = document.createElement("li");
+                    let link = document.createElement("a");
+                    link.innerHTML = recording;
+                    listElement.appendChild(link);
+                    list.appendChild(listElement);
+                });
+            }
+        };
+        xhttp.open("GET", "http://localhost:3000/api/recordings", true);
+        xhttp.send();
+    }
+    
+    function removeVideoSrc() {
+        video.removeAttribute('src');
         video.load();
         if (mediaSource != null) {
             delete mediaSource;
             mediaSource = null;
         }
-        document.getElementById("progress").style.visibility = "hidden";
     }
 
     video.ontimeupdate = () => {
