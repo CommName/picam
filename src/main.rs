@@ -1,6 +1,7 @@
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
+use config::Config;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
 use poem::http::Method;
@@ -13,6 +14,7 @@ use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
 
 mod api_handlers;
+mod config;
 mod video;
 mod file_sink;
 
@@ -104,11 +106,12 @@ pub struct ParsedBuffer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::from_env();
     // Initialize GStreamer
     gstreamer::init()?;
 
     let (send, recv) = std::sync::mpsc::channel();
-    let pipeline = video::build_gstreamer_pipline(send)?;
+    let pipeline = video::build_gstreamer_pipline(send, config)?;
 
 
     let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);

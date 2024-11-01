@@ -5,20 +5,22 @@ use gstreamer::{prelude::*, Buffer, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline};
 use gstreamer_app::AppSink;
 
+use crate::config::Config;
+
 /*
 gst-launch-1.0 -e v4l2src \
     ! video/x-raw, format=I420 ! x264enc key-int-max=10 ! mp4mux ! autovideosink
 
 */
 
-pub fn build_gstreamer_pipline(send: Sender<Buffer>) -> Result<Pipeline, glib::BoolError> {
+pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<Pipeline, glib::BoolError> {
 
     // Create the elements
     let pipeline = Pipeline::new();
 
     let v4l2src = ElementFactory::make("v4l2src", )
         .name("v4l2src")
-        //.property("device", "/dev/video1")
+        .property("device", config.source)
         .property("num-buffers", -1)
         .build()?;
 
@@ -27,7 +29,7 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>) -> Result<Pipeline, glib::B
         .name("capsfilter")
         .property("caps", gstreamer::Caps::builder("video/x-raw")
             .field("format", "I420")
-            .field("framerate",  gstreamer::Fraction::new(5, 1))
+            .field("framerate",  gstreamer::Fraction::new(30, 1))
             .build()
         )
         .build()?;
