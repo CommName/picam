@@ -4,6 +4,7 @@ use std::sync::Arc;
 use config::Config;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
+use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
 use poem::middleware::Cors;
@@ -103,15 +104,19 @@ pub struct ParsedBuffer {
     key_frame: bool,
     timestamp: Option<ClockTime>
 }
+// 13 32
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env();
+    println!("Config file: {config:?}");
     // Initialize GStreamer
     gstreamer::init()?;
+    println!("Gstreamer initizalized");
 
     let (send, recv) = std::sync::mpsc::channel();
     let pipeline = video::build_gstreamer_pipline(send, config)?;
+    println!("Pipeline created");
 
 
     let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
@@ -184,6 +189,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:3000");
 
     let app = Route::new()
+        .nest("/", StaticFilesEndpoint::new("./index.html"))
+        .nest("/pico.css", StaticFilesEndpoint::new("./pico.css"))
         .at("/ws",
             get(ws)
             .data(tx2)
