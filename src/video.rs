@@ -13,7 +13,7 @@ gst-launch-1.0 -e v4l2src \
 
 */
 
-pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<Pipeline, glib::BoolError> {
+pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<Pipeline, String> {
 
     // Create the elements
     let pipeline = Pipeline::new();
@@ -22,7 +22,8 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
         .name("v4l2src")
         .property("device", config.source)
         .property("num-buffers", -1)
-        .build()?;
+        .build()
+        .unwrap();
 
     let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
     let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
@@ -32,7 +33,8 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
             .field("framerate",  gstreamer::Fraction::new(30, 1))
             .build()
         )
-        .build()?;
+        .build()
+        .unwrap();
 
     let timeoverlay = ElementFactory::make_with_name("timeoverlay", Some("timeoverlay")).unwrap();
 
@@ -44,9 +46,10 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
         .property("bframes", 0u32)
         .property_from_str("speed-preset", "ultrafast")
         .property_from_str("tune", "zerolatency")
-        .build()?;
+        .build()
+        .unwrap();
 
-    let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse"))?;
+    let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse")).unwrap();
 
     let mpegtsmux = ElementFactory::make("mp4mux")
         .name("mp4mux")
@@ -54,7 +57,8 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
         .property("force-chunks", true)
         .property("fragment-duration", 1u32)
         .property("faststart", true)
-        .build()?;
+        .build()
+        .unwrap();
 
     let appsink = AppSink::builder()
         .name("app_sink")
@@ -71,10 +75,11 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
         &h264parse,
         &mpegtsmux,
         appsink.upcast_ref(),
-    ])?;
+    ])
+    .unwrap();
 
     // Link elements in the pipeline
-    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &timeoverlay, &x264enc, &h264parse, &mpegtsmux, &appsink.upcast_ref()])?;
+    gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &timeoverlay, &x264enc, &h264parse, &mpegtsmux, &appsink.upcast_ref()]).unwrap();
 
     appsink.set_callbacks(gstreamer_app::AppSinkCallbacks::builder()
         .new_sample(move |app_sink| {
