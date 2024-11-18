@@ -2,6 +2,56 @@
 
 <head>
     <link rel="stylesheet" href="pico.css" />
+    <style>
+        #timeline-container {
+            width: 100%;
+            position: relative;
+            height: 50px;
+            background-color: #000;
+            border: 1px solid #ccc;
+            overflow-x: scroll;
+            overflow-y: hidden;
+            margin-top: 20px;
+        }
+
+        #timeline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: flex-start;
+            width: 100%;
+            white-space: nowrap;
+        }
+
+        .tick {
+            position: absolute;
+            width: 1px;
+            bottom: 0;
+            height: 30%;
+            background-color: gray;
+        }
+        .tickHeigh {
+            position: absolute;
+            width: 1px;
+            bottom: 0;
+            height: 60%;
+            background-color: white;
+        }
+
+        .tick-label {
+            position: absolute;
+            font-size: 10px;
+            top: 0px;
+            text-align: left;
+
+            height: 100px;
+
+        }
+    </style>
 </head>
 
 <body st>
@@ -16,17 +66,65 @@
     </header>
     <main class="container">
         <div style="visibility: hidden;" class="container" id="archive">
-            <details id="selectArchiveButton" class="dropdown">
-                <summary  role="button" class="secondary">Select archive</summary>
-                <ul id="archiveList">
-                </ul>
-              </details>
+            <div id="timeline-container">
+                <div id="timeline"></div>
+            </div>
         </div>
         <video style="width: 100%;" id="player" autoplay></video>
         <progress id="progress"></progress>
     </main>
 </body>
 <script>
+function createTimeline(archiveList) {
+    const timeline = document.getElementById('timeline');
+    timeline.innerHTML = "";
+
+    archiveList.sort();
+
+    const archiveDateTimeList = [];
+
+    for(let i=0; i<archiveList.length; i++) {
+        archiveDateTimeList.push(new Date(archiveList[i].slice(0, -4)));
+    }
+
+
+    const tickSpacing = 10;   // Space between ticks (in pixels)
+    
+    // Generate ticks and labels
+    let minuteOffSet = 0;
+    for (let i = 0; i < (archiveDateTimeList.length -1); i++) {
+        let minutes = Math.abs(archiveDateTimeList[i+1] -archiveDateTimeList[i]) / (1000 * 60);
+        // Add a label for every archive
+        const label = document.createElement('div');
+        label.classList.add('tick-label');
+        label.textContent = archiveDateTimeList[i].getHours() 
+            + ":" 
+            + archiveDateTimeList[i].getMinutes() 
+            + ":" 
+            + archiveDateTimeList[i].getSeconds();
+        label.style.left = `${minuteOffSet * tickSpacing}px`;
+        label.style.width = `${(minutes + 1) * tickSpacing }px`;
+
+        label.addEventListener("click", (event) => {
+            playRecording(archiveList[i]);
+        })
+
+        timeline.appendChild(label);
+        for(let j= 0 ; j<minutes; j++) {
+            const tick = document.createElement('div');
+            if(j===0) {
+                tick.classList.add('tickHeigh');
+            } else {
+                tick.classList.add('tick');
+            }
+            tick.style.left = `${minuteOffSet * tickSpacing}px`; // Set the position of each tick
+            timeline.appendChild(tick);
+            minuteOffSet += 1;
+        }
+        
+    }
+};
+
     let video = document.getElementById('player');
     let mediaSource = null;
     let sourceBuffer = null;
@@ -56,28 +154,18 @@
         refreshArchive();
     }
 
+    function playRecording(recording) {
+        removeVideoSrc();
+        video.src = "http://localhost:3000/api/recordings/"+recording;
+        video.load();
+    }
+
     function refreshArchive() {
         var xhttp = new XMLHttpRequest();
         xhttp.onreadystatechange = function() {
             if (this.readyState == 4 && this.status == 200) {
                 let archive = JSON.parse(xhttp.responseText);
-                let list = document.getElementById("archiveList");
-                list.innerHTML = "";
-
-                archive.forEach(recording => {
-                    let listElement = document.createElement("li");
-                    let link = document.createElement("a");
-                    link.innerHTML = recording;
-                    listElement.appendChild(link);
-                    list.appendChild(listElement);
-                    listElement.addEventListener("click", (event) => {
-                        event.preventDefault();
-                        document.getElementById("selectArchiveButton").removeAttribute("open");
-                        removeVideoSrc();
-                        video.src = "http://localhost:3000/api/recordings/"+recording;
-                        video.load();
-                    })
-                });
+                createTimeline(archive);
             }
         };
         xhttp.open("GET", "http://localhost:3000/api/recordings", true);
