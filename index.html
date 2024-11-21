@@ -74,7 +74,7 @@
         </div>
     </header>
     <main class="container">
-        <div style="visibility: hidden;" class="container" id="archive">
+        <div style="visibility: collapse;" class="container" id="archive">
             <div id="timeline-container">
                 <div id="timeline"></div>
             </div>
@@ -151,7 +151,7 @@ function createTimeline(archiveList) {
         document.getElementById("goToLivePageButton").className = "";
         document.getElementById("goToArchivePageButton").className = "secondary";
         document.getElementById("progress").style.visibility = "visible";
-        document.getElementById("archive").style.visibility = "hidden";
+        document.getElementById("archive").style.visibility = "collapse";
         removeVideoSrc();
         createVideoSource();
     }
@@ -164,7 +164,7 @@ function createTimeline(archiveList) {
             socket.close(1000);
         }
         removeVideoSrc();
-        document.getElementById("progress").style.visibility = "hidden";
+        document.getElementById("progress").style.visibility = "collapse";
         document.getElementById("archive").style.visibility = "visible";
         refreshArchive();
     }
@@ -190,6 +190,8 @@ function createTimeline(archiveList) {
     function removeVideoSrc() {
         video.removeAttribute('src');
         video.load();
+        opened = false;
+        collectedData = [];
         if (mediaSource != null) {
             delete mediaSource;
             mediaSource = null;
@@ -197,8 +199,8 @@ function createTimeline(archiveList) {
     }
 
     video.ontimeupdate = () => {
-        if (sourceBuffer) {
-            document.getElementById("progress").style.visibility = "hidden";
+        if (sourceBuffer && opened) {
+            document.getElementById("progress").style.visibility = "collapse";
 
             let length = sourceBuffer.buffered.length;
             let seconds = sourceBuffer.buffered.end(sourceBuffer.buffered.length - 1);
@@ -213,7 +215,6 @@ function createTimeline(archiveList) {
     }
 
     function createVideoSource() {
-        opened = false;
         mediaSource = new MediaSource();
         mediaSource.addEventListener("sourceopen", this.onSourceOpen);
         
@@ -223,7 +224,6 @@ function createTimeline(archiveList) {
 
 
     function onSourceOpen() {
-
         if (opened) {
             return;
         }
@@ -242,7 +242,7 @@ function createTimeline(archiveList) {
 
         function addToBuffer(data) {
             collectedData.push(data);
-            if (sourceBuffer) {
+            if (sourceBuffer && opened) {
                 while(!sourceBuffer.updating) {
                     let seg = collectedData.shift();
                     if (seg) {
