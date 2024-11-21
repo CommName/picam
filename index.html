@@ -171,7 +171,7 @@ function createTimeline(archiveList) {
 
     function playRecording(recording) {
         removeVideoSrc();
-        video.src = "http://localhost:3000/api/recordings/"+recording;
+        video.src = "./api/recordings/"+recording;
         video.load();
     }
 
@@ -183,7 +183,7 @@ function createTimeline(archiveList) {
                 createTimeline(archive);
             }
         };
-        xhttp.open("GET", "http://localhost:3000/api/recordings", true);
+        xhttp.open("GET", "./api/recordings", true);
         xhttp.send();
     }
     
@@ -254,7 +254,7 @@ function createTimeline(archiveList) {
 
 
         // Open websocket
-        socket = new WebSocket("ws://localhost:3000/ws");
+        socket = new WebSocket("ws://"+window.location.host+"/ws");
 
         socket.addEventListener("message", async (event) => {
             let data = await event.data.arrayBuffer();
