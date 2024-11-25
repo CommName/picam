@@ -46,3 +46,8 @@ Seek flags:
 
 # Buffer
 Message travles through pads using buffers which are timestamp
+
+# Build 
+sudo mount -t tmpfs -o size=10G tmpfs /tmp/cargo
+
+docker run --privileged --platform arm --rm -it  --network host  --mount type=bind,src=./,dst=/app -v /tmp/cargo:/root/.cargo/registry/index/  pibuilder /bin/bash
