@@ -1,11 +1,14 @@
 
-use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
-use gstreamer::{prelude::*, Buffer, FlowSuccess};
+use tokio::sync::broadcast::Sender;
+
+use gstreamer::{prelude::*, Buffer, BufferFlags, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline};
 use gstreamer_app::AppSink;
 
 use crate::config::Config;
+use crate::ParsedBuffer;
 
 /*
 gst-launch-1.0 -e v4l2src \
@@ -13,7 +16,7 @@ gst-launch-1.0 -e v4l2src \
 
 */
 
-pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<Pipeline, String> {
+pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) -> Result<Pipeline, String> {
 
     // Create the elements
     let pipeline = Pipeline::new();
@@ -81,13 +84,59 @@ pub fn build_gstreamer_pipline(send: Sender<Buffer>, config: Config) -> Result<P
     // Link elements in the pipeline
     gstreamer::Element::link_many(&[&v4l2src, &videoconvert, &capsfilter, &timeoverlay, &x264enc, &h264parse, &mpegtsmux, &appsink.upcast_ref()]).unwrap();
 
+
+    let mut vec = Vec::with_capacity(1024);
+
+
+    println!("Started recv");
+    let mut key_frame = true;
+    let mut timestamp = None;
+    let mut number_of_messages_to_forward = 0;
+
     appsink.set_callbacks(gstreamer_app::AppSinkCallbacks::builder()
         .new_sample(move |app_sink| {
             if let Ok(sample) = app_sink.pull_sample() {
                 if let Some(buffer) = sample.buffer_owned() {
-                    if let Err(_) = send.send(buffer) {
-                        // TODO log and handle error
+     
+                    if let Some(pts) = buffer.pts() {
+                        let _ = timestamp.insert(pts);
                     }
+            
+                    let mapa = buffer.map_readable().unwrap();
+                    let mut slice = mapa.to_vec();
+
+                    if number_of_messages_to_forward < 2 {
+                        send.send(Arc::new(ParsedBuffer{
+                            data: slice,
+                            key_frame: true,
+                            timestamp: None,
+                        }));
+                        number_of_messages_to_forward += 1; 
+                        return Ok(FlowSuccess::Ok)
+                    }
+            
+                        // Check for I FRAME
+                    if buffer.flags().iter().any(|f| {
+                        BufferFlags::DELTA_UNIT == f
+                    }) {
+                        key_frame = false;
+                    };
+            
+                    // moof 6d6f 6f66
+                    if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
+                        if let Err(_) = send.send(Arc::new(ParsedBuffer {
+                            data: vec.clone(),
+                            key_frame,
+                            timestamp
+                        })) {
+                                // TODO log and handle error
+                            }
+                            vec.clear();
+                            key_frame = true;
+                            timestamp.take();
+                        }
+                        vec.append(&mut slice);
+            
                 }
             }
             

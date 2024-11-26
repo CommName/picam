@@ -1,9 +1,8 @@
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use config::Config;
 use futures_util::{SinkExt, StreamExt};
-use gstreamer::{prelude::*, Buffer, BufferFlags, ClockTime, State};
+use gstreamer::{prelude::*, Buffer, ClockTime, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
@@ -13,6 +12,7 @@ use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
+use tokio::sync::broadcast::Receiver;
 
 mod api_handlers;
 mod config;
@@ -83,14 +83,12 @@ fn ws(
 }
 
 
-pub fn get_moov_header(recv: &Receiver<Buffer>) -> Arc<Vec<Vec<u8>>> {
+pub async  fn get_moov_header(mut recv: Receiver<Arc<ParsedBuffer>>) -> Arc<Vec<Vec<u8>>> {
     let mut moov: Vec<Vec<u8>> = Vec::new();
     let mut number_of_buffs = 0;
     while number_of_buffs < 2 {
-        if let Ok(buffer) = recv.recv() {
-            let mapa = buffer.map_readable().unwrap();
-            let slice = mapa.to_vec();
-            moov.push(slice);
+        if let Ok(buffer) = recv.recv().await {
+            moov.push(buffer.data.clone());
             number_of_buffs += 1;
         } else {
             break;
@@ -114,12 +112,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     gstreamer::init()?;
     println!("Gstreamer initizalized");
 
-    let (send, recv) = std::sync::mpsc::channel();
-    let pipeline = video::build_gstreamer_pipline(send, config)?;
+    let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
+    let pipeline = video::build_gstreamer_pipline(tx.clone(), config)?;
     println!("Pipeline created");
 
 
-    let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
     let tx2 = tx.clone();
 
     
@@ -128,48 +125,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pipeline.set_state(State::Playing)?;
     println!("Pipline started");
     
-    let moov = get_moov_header(&recv);
+    let moov = get_moov_header(rx).await;
 
     std::thread::spawn(move || {
-        let mut vec = Vec::with_capacity(1024);
-
-
-        println!("Started recv");
-        let mut key_frame = true;
-        let mut timestamp = None;
-        while let Ok(buffer) = recv.recv() {
-            
-            if let Some(pts) = buffer.pts() {
-                let _ = timestamp.insert(pts);
-            }
-
-            let mapa = buffer.map_readable().unwrap();
-            let mut slice = mapa.to_vec();
-
-            // Check for I FRAME
-            if buffer.flags().iter().any(|f| {
-                BufferFlags::DELTA_UNIT == f
-            }) {
-                key_frame = false;
-            };
-
-            // moof 6d6f 6f66
-            if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
-                if let Err(_) = tx.send(Arc::new(ParsedBuffer {
-                    data: vec.clone(),
-                    key_frame,
-                    timestamp
-                })) {
-                    // TODO log and handle error
-                }
-                vec.clear();
-                key_frame = true;
-                timestamp.take();
-            }
-
-            vec.append(&mut slice);
-
-        }
     });
 
     let moov2 = Arc::clone(&moov);
