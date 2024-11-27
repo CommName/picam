@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::broadcast::Sender;
 
-use gstreamer::{prelude::*, Buffer, BufferFlags, FlowSuccess};
+use gstreamer::{prelude::*, BufferFlags, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline};
 use gstreamer_app::AppSink;
 
@@ -106,7 +106,7 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
                     let mut slice = mapa.to_vec();
 
                     if number_of_messages_to_forward < 2 {
-                        send.send(Arc::new(ParsedBuffer{
+                        let _ =send.send(Arc::new(ParsedBuffer{
                             data: slice,
                             key_frame: true,
                             timestamp: None,

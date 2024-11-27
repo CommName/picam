@@ -29,7 +29,7 @@ impl Api {
     #[oai(path = "/recordings/:recording", method = "get")]
     async fn download_recordings(&self, Path(recording): Path<String>) -> Response<Binary<Vec<u8>>> {
 
-        let mut path = PathBuf::from_str(&(crate::file_sink::APP_DATA_PATH.to_string() + "/" + &recording))
+        let path = PathBuf::from_str(&(crate::file_sink::APP_DATA_PATH.to_string() + "/" + &recording))
             .unwrap(); // TODO handle this error
 
         if path.parent().map(|p| p.as_os_str() != crate::file_sink::APP_DATA_PATH).unwrap_or(true) {

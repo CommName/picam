@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use config::Config;
 use futures_util::{SinkExt, StreamExt};
-use gstreamer::{prelude::*, Buffer, ClockTime, State};
+use gstreamer::{prelude::*, ClockTime, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
