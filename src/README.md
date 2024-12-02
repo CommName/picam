@@ -53,3 +53,7 @@ sudo mount -t tmpfs -o size=10G tmpfs /tmp/cargo
 docker run --privileged --platform arm --rm -it  --network host  --mount type=bind,src=./,dst=/app -v /tmp/cargo:/root/.cargo/registry/index/  pibuilder /bin/bash
 
 docker image build --platform arm  --file=./Dockerbuilder.arm -t pibuilder:arm .
+
+
+## START COMMAND
+ SHORT_CUT_PIPELINE=false WIDTH=640 HEIGHT=480 cargo run
