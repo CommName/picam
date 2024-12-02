@@ -1,6 +1,7 @@
 
 use std::sync::Arc;
 
+use gstreamer::Element;
 use tokio::sync::broadcast::Sender;
 
 use gstreamer::{prelude::*, BufferFlags, FlowSuccess};
@@ -19,6 +20,50 @@ gst-launch-1.0 -e v4l2src \
 gst-launch-1.0 v4l2src ! video/x-h264, width=1280, height=720 ! h264parse ! mp4mux streamable=true force-chunks=true faststart=true ! fakesink
 */
 
+fn short_pipeline(config: &Config) -> Vec<Element> { 
+    let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
+        .name("capsfilter")
+        .property("caps", gstreamer::Caps::builder("video/x-h264")
+            .field("format", "I420")
+            .field("width", config.width)
+            .field("height", config.height)
+            .field("framerate",  gstreamer::Fraction::new(30, 1))
+            .build()
+        )
+        .build()
+        .unwrap();
+
+    vec![capsfilter]
+}
+
+fn long_pipeline(config: &Config) -> Vec<Element> {
+    let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
+    let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
+        .name("capsfilter")
+        .property("caps", gstreamer::Caps::builder("video/x-raw")
+            .field("format", "I420")
+            .field("width", config.width)
+            .field("height", config.height)
+            .field("framerate",  gstreamer::Fraction::new(30, 1))
+            .build()
+        )
+        .build()
+        .unwrap();
+
+    let x264enc = ElementFactory::make("x264enc")
+        .name("x264enc")
+        .property("key-int-max", 60u32)
+        .property("b-adapt", false)
+        .property("b-pyramid", false)
+        .property("bframes", 0u32)
+        .property_from_str("speed-preset", "ultrafast")
+        .property_from_str("tune", "zerolatency")
+        .build()
+        .unwrap();
+
+    vec![videoconvert, capsfilter, x264enc]
+}
+
 pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) -> Result<Pipeline, String> {
 
     // Create the elements
@@ -26,36 +71,17 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
 
     let v4l2src = ElementFactory::make("v4l2src", )
         .name("v4l2src")
-        .property("device", config.source)
+        .property("device", config.source.clone())
         .property("num-buffers", -1)
         .build()
         .unwrap();
 
-    // let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
-    let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
-        .name("capsfilter")
-        .property("caps", gstreamer::Caps::builder("video/x-h264")
-            .field("format", "I420")
-            .field("width", 1280)
-            .field("height", 720)
-            .field("framerate",  gstreamer::Fraction::new(30, 1))
-            .build()
-        )
-        .build()
-        .unwrap();
+    let video_elements = if config.short_cut_pipeline {
+        short_pipeline(&config)
+    } else {
+        long_pipeline(&config) 
+    };
 
-    // let timeoverlay = ElementFactory::make_with_name("timeoverlay", Some("timeoverlay")).unwrap();
-
-    // let x264enc = ElementFactory::make("x264enc")
-        // .name("x264enc")
-        // .property("key-int-max", 60u32)
-        // .property("b-adapt", false)
-        // .property("b-pyramid", false)
-        // .property("bframes", 0u32)
-        // .property_from_str("speed-preset", "ultrafast")
-        // .property_from_str("tune", "zerolatency")
-        // .build()
-        // .unwrap();
 
     let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse")).unwrap();
 
@@ -74,12 +100,11 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
 
 
     // Add elements to the pipeline
+    pipeline.add_many(&video_elements)
+        .unwrap();
+
     pipeline.add_many(&[
         &v4l2src,
-        // &timeoverlay,
-        // &videoconvert,
-        &capsfilter,
-        // &x264enc,
         &h264parse,
         &mpegtsmux,
         appsink.upcast_ref(),
@@ -88,11 +113,14 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
 
     // Link elements in the pipeline
     gstreamer::Element::link_many(&[
-        &v4l2src, 
-        // &videoconvert,
-        &capsfilter,
-        // &timeoverlay,
-        // &x264enc,
+        &v4l2src,
+        video_elements.first().unwrap()
+    ]).unwrap();
+    if video_elements.len() > 1 {
+        gstreamer::Element::link_many(&video_elements).unwrap()
+    }
+    gstreamer::Element::link_many(&[
+        video_elements.last().unwrap(),
         &h264parse,
         &mpegtsmux,
         &appsink.upcast_ref()
