@@ -29,7 +29,7 @@ impl Config {
             .map(|p| p.parse::<i32>().ok())
             .ok()
             .flatten()
-            .unwrap_or(1280);
+            .unwrap_or(720);
         Self {
             source,
             short_cut_pipeline,
