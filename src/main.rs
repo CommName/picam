@@ -16,6 +16,7 @@ use tokio::sync::broadcast::Receiver;
 
 mod api_handlers;
 mod config;
+mod sys;
 mod video;
 mod file_sink;
 
@@ -109,6 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env();
     println!("Config file: {config:?}");
     // Initialize GStreamer
+    let devices = sys::Device::devices();
+    println!("Devices detected: {devices:?}");
     gstreamer::init()?;
     println!("Gstreamer initizalized");
 

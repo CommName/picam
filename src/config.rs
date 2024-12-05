@@ -3,7 +3,7 @@
 #[derive(Debug, Clone)]
 pub struct Config {
     pub source: String,
-    pub short_cut_pipeline: bool,
+    pub use_cam_builtin_encoder: bool,
     pub width: i32,
     pub height: i32
 }
@@ -13,7 +13,7 @@ impl Config {
         let source = std::env::var("SOURCE")
             .unwrap_or_else(|_| String::from("/dev/video0"));
 
-        let short_cut_pipeline = std::env::var("SHORT_CUT_PIPELINE")
+        let use_cam_builtin_encoder = std::env::var("BUILT_IN_ENCODER")
             .map(|p| p.parse::<bool>().ok())
             .ok()
             .flatten()
@@ -32,7 +32,7 @@ impl Config {
             .unwrap_or(720);
         Self {
             source,
-            short_cut_pipeline,
+            use_cam_builtin_encoder,
             width,
             height
         }

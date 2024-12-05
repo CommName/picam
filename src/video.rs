@@ -76,7 +76,7 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
         .build()
         .unwrap();
 
-    let video_elements = if config.short_cut_pipeline {
+    let video_elements = if config.use_cam_builtin_encoder {
         short_pipeline(&config)
     } else {
         long_pipeline(&config) 
