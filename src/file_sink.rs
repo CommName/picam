@@ -4,8 +4,9 @@ use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::Receiver};
 
 use crate::ParsedBuffer;
 
-const CREATE_NEW_FILE_THRESHOLD: u64 = 5 * 60;
+const CREATE_NEW_FILE_THRESHOLD: u64 = 1 * 60;
 const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
+const MAX_FS_USAGE: f64 = 0.9;
 pub const APP_DATA_PATH: &str = "./app_data";
 
 
@@ -67,8 +68,12 @@ async fn remove_oldest_file() {
 }
 
 async fn should_file_be_rotated() -> bool {
-    let mut files = tokio::fs::read_dir(APP_DATA_PATH).await.unwrap();
+    percentage_of_file_system_usage() > MAX_FS_USAGE
+        || number_of_mp4_files().await > MAX_NUMBER_OF_FILES
+}
 
+pub async  fn number_of_mp4_files() -> u64 {
+    let mut files = tokio::fs::read_dir(APP_DATA_PATH).await.unwrap();
     let mut number_of_mp4_files = 0;
     while let Ok(Some(file)) = files.next_entry().await {
         if file.file_name()
@@ -79,7 +84,14 @@ async fn should_file_be_rotated() -> bool {
             number_of_mp4_files += 1;
         }
     }
-    number_of_mp4_files > MAX_NUMBER_OF_FILES
+    number_of_mp4_files
+}
+
+pub fn percentage_of_file_system_usage() -> f64 {
+    let total_space = fs2::total_space(APP_DATA_PATH).unwrap_or(1);
+    let free_space = fs2::free_space(APP_DATA_PATH).unwrap_or(1);
+    let ret = 1.0 - (free_space as f64 / total_space as f64);
+    return ret;
 }
 
 fn should_create_new_file(buffer: &Arc<ParsedBuffer>, base_timestamp: &mut u64) -> bool {
