@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
+fs2 = "0.4.3"
 futures-util = "0.3.30"
 gstreamer = { version="0.23.0", default-features = false, features = [] }
 gstreamer-app = { version="0.23.0", default-features = false, features = [] }
@@ -14,3 +15,19 @@ poem = { version = "3.1.0", features = ["static-files", "websocket"] }
 poem-openapi = "5.1.2"
 tokio = { version = "1.40.0", features = ["full"] }
 v4l = "0.14.0"
+
+
+[package.metadata.deb]
+maintainer = "CommName"
+copyright = "Apache License 2.0"
+license-file = ["LICENSE", "4"]
+extended-description = "Web cam streamer"
+depends = "$auto"
+section = "utility"
+priority = "optional"
+assets = [
+    ["target/release/webcam_streamer", "/usr/bin/", "755"],
+    { source = "README.md", dest = "/usr/share/doc/webcam_streamer/README", mode = "644"},
+]
+maintainer-scripts = "debian/"
+systemd-units = { enable = false }
