@@ -1,0 +1,11 @@
+[Unit]
+Description=Service that streams and records from webcamera
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/webcam_streamer
+User=root
+
+[Install]
+WantedBy=default.target
