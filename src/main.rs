@@ -19,6 +19,7 @@ mod config;
 mod sys;
 mod video;
 mod file_sink;
+mod db;
 
 #[handler]
 fn ws(
@@ -109,6 +110,11 @@ pub struct ParsedBuffer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env();
     println!("Config file: {config:?}");
+
+    let mut connection = db::establish_connection();
+    db::update_db_migrations(&mut connection);
+    
+    
     // Initialize GStreamer
     let devices = sys::Device::devices();
     println!("Devices detected: {devices:?}");
