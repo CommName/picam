@@ -13,6 +13,7 @@ use poem::{get, EndpointExt, IntoResponse, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
 use tokio::sync::broadcast::Receiver;
+use tokio::sync::Mutex;
 
 mod api_handlers;
 mod config;
@@ -112,6 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut connection = db::establish_connection();
     db::update_db_migrations(&mut connection);
+    let connection = Arc::new(Mutex::new(connection));
     
     
     // Initialize GStreamer
@@ -149,10 +151,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_method(Method::POST)
         .allow_origin_regex("*");
 
-
-
     let api_service =
         OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:3000");
+
+    println!("Starting server");
 
     let app = Route::new()
         .nest("/", StaticFilesEndpoint::new("./frontend/index.html"))
@@ -162,9 +164,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .data(tx2)
             .data(moov)
         )
-        .nest("/api", api_service).with(cors);
+        .nest("/api", api_service)
+            .data(connection)
+            .with(cors);
 
-    let _ = Server::new(TcpListener::bind("0.0.0.0:3000"))
+    let _ = Server::new(TcpListener::bind("0.0.0.0:8080"))
         .run(app)
         .await;
 

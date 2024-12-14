@@ -20,7 +20,7 @@ pub fn update_db_migrations(con: &mut SqliteConnection) {
 }
 
 
-pub fn get_user(con: &mut SqliteConnection) -> Vec<User> {
+pub fn get_users(con: &mut SqliteConnection) -> Vec<User> {
     use self::schema::users::dsl::*;
     let result = users
         .select(User::as_select())
@@ -28,6 +28,13 @@ pub fn get_user(con: &mut SqliteConnection) -> Vec<User> {
         .unwrap(); // TODO handle error
 
     result
+}
+
+pub fn number_of_users(con: &mut SqliteConnection) -> usize {
+    use self::schema::users::dsl::*;
+    users.count()
+        .execute(con)
+        .unwrap()
 }
 
 pub fn update_user(con: &mut SqliteConnection, user: User) {
@@ -38,10 +45,16 @@ pub fn update_user(con: &mut SqliteConnection, user: User) {
         .unwrap();
 }
 
-pub fn create_User(con: &mut SqliteConnection, user: User) {
+pub fn create_user(con: &mut SqliteConnection, user: User) {
     diesel::insert_into(users::table)
         .values(&user)
         .execute(con)
         .unwrap();
 
+}
+
+pub fn delete_user(con: &mut SqliteConnection, user: String) {
+    use self::schema::users::dsl::*;
+    diesel::delete(users.find(user))
+        .execute(con);
 }

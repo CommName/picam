@@ -37,6 +37,7 @@ fn short_pipeline(config: &Config) -> Vec<Element> {
 }
 
 fn long_pipeline(config: &Config) -> Vec<Element> {
+    println!("Using software encoder");
     let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
     let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
         .name("capsfilter")
