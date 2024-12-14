@@ -30,11 +30,18 @@ pub fn get_user(con: &mut SqliteConnection) -> Vec<User> {
     result
 }
 
+pub fn update_user(con: &mut SqliteConnection, user: User) {
+    use self::schema::users::dsl::*;
+    diesel::update(users.find(user.username))
+        .set(password.eq(user.password))
+        .execute(con)
+        .unwrap();
+}
+
 pub fn create_User(con: &mut SqliteConnection, user: User) {
     diesel::insert_into(users::table)
         .values(&user)
-        .returning(User::as_returning())
-        .get_result(con)
+        .execute(con)
         .unwrap();
 
 }
