@@ -104,7 +104,6 @@ pub struct ParsedBuffer {
     key_frame: bool,
     timestamp: Option<ClockTime>
 }
-// 13 32
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -156,8 +155,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:3000");
 
     let app = Route::new()
-        .nest("/", StaticFilesEndpoint::new("./index.html"))
-        .nest("/pico.css", StaticFilesEndpoint::new("./pico.css"))
+        .nest("/", StaticFilesEndpoint::new("./frontend/index.html"))
+        .nest("/pico.css", StaticFilesEndpoint::new("./frontend/pico.css"))
         .at("/ws",
             get(ws)
             .data(tx2)
