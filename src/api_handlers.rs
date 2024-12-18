@@ -1,10 +1,48 @@
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use diesel::SqliteConnection;
-use poem::web;
-use poem_openapi::{param::Path, payload::{Binary, Json, Response}, OpenApi};
+use poem::{session::Session, web};
+use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi};
 use tokio::sync::Mutex;
 use crate::db::{self, models::User};
+
+type Result<T> = std::result::Result<T, Error>;
+
+#[derive(ApiResponse)]
+pub enum Error {
+    #[oai (status="404")]
+    NotFound(Json<ErrorMessage>),
+    #[oai (status="400")]
+    BadRequest(Json<ErrorMessage>)
+}
+
+#[derive(Object)]
+pub struct ErrorMessage {
+    error: String
+}
+
+#[derive(Clone, Object)]
+struct PiCamClaim {
+    user: String
+}
+
+enum AuthError {
+    UserMissing,
+    InccorectPassword
+}
+
+impl From<AuthError> for Error {
+    fn from(value: AuthError) -> Self {
+        match value {
+            AuthError::UserMissing => Error::BadRequest(Json(ErrorMessage {
+                 error: String::from("Invalid username") 
+            })),
+            AuthError::InccorectPassword => Error::BadRequest(Json(ErrorMessage {
+                error: String::from("Invalid password") 
+           }))
+        }
+    }
+}
 
 pub struct Api;
 
@@ -50,7 +88,6 @@ impl Api {
     #[oai(path = "/users/init", method = "post")]
     async  fn init_user(&self, Json(admin): Json<User>,  db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
         let mut db = db.lock().await;
-
         let number_of_users = db::number_of_users(&mut db);
         if number_of_users != 0 {
             return;
@@ -63,31 +100,41 @@ impl Api {
     #[oai(path = "/users", method = "get")]
     async fn get_users(&self, db: web::Data<&Arc<Mutex<SqliteConnection>>>) -> Json<Vec<String>> {
         let mut db = db.lock().await;
-
         let users = db::get_users(&mut db)
             .into_iter()
             .map(|u| u.username)
             .collect();
-
         Json(users)
     }
 
     #[oai(path = "/auth", method = "post")]
-    async  fn auth(&self) {
-
+    async  fn auth(
+        &self, 
+        Json(user): Json<User>, 
+        db: web::Data<&Arc<Mutex<SqliteConnection>>>, 
+        session: &Session,
+    ) -> Result<Json<String>> {
+        let mut db = db.lock().await;
+        let db_user = db::get_user(&mut db, &user.username)
+            .ok_or_else(|| AuthError::UserMissing)?;
+        drop(db);
+        if db_user.password == user.password {
+            session.set("user", user.username.clone());
+            Ok(Json(user.username))
+        } else {
+            Err(AuthError::InccorectPassword.into())
+        }
     }
 
     #[oai(path = "/users/update", method = "post")]
     async  fn update_user(&self, Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
         let mut db = db.lock().await;
-
         db::update_user(&mut db, user);
     }
 
     #[oai(path = "/users/register", method = "post")]
     async  fn register_user(&self,  Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
         let mut db = db.lock().await;
-
         db::create_user(&mut db, user);
     }
 

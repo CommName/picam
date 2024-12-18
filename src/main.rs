@@ -7,6 +7,7 @@ use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
 use poem::middleware::Cors;
+use poem::web::cookie::CookieKey;
 use poem::web::websocket::Message;
 use poem::web::Data;
 use poem::{get, EndpointExt, IntoResponse, Route, Server};
@@ -14,6 +15,7 @@ use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::Mutex;
+use poem::session::{CookieConfig, CookieSession, Session};
 
 mod api_handlers;
 mod config;
@@ -114,8 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut connection = db::establish_connection();
     db::update_db_migrations(&mut connection);
     let connection = Arc::new(Mutex::new(connection));
-    
-    
+
     // Initialize GStreamer
     let devices = sys::Device::devices();
     println!("Devices detected: {devices:?}");
@@ -128,8 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
     let tx2 = tx.clone();
-
-    
     
     // Start playing
     pipeline.set_state(State::Playing)?;
@@ -152,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_origin_regex("*");
 
     let api_service =
-        OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:3000");
+        OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:8080");
 
     println!("Starting server");
 
@@ -166,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .nest("/api", api_service)
             .data(connection)
+            .with(CookieSession::new(CookieConfig::signed(CookieKey::generate())))
             .with(cors);
 
     let _ = Server::new(TcpListener::bind("0.0.0.0:8080"))

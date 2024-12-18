@@ -4,7 +4,7 @@ use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::Receiver};
 
 use crate::ParsedBuffer;
 
-const CREATE_NEW_FILE_THRESHOLD: u64 = 1 * 60;
+const CREATE_NEW_FILE_THRESHOLD: u64 = 10 * 60;
 const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
 const MAX_FS_USAGE: f64 = 0.9;
 pub const APP_DATA_PATH: &str = "./app_data";

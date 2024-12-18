@@ -30,6 +30,14 @@ pub fn get_users(con: &mut SqliteConnection) -> Vec<User> {
     result
 }
 
+pub fn get_user(con: &mut SqliteConnection, user: &str) -> Option<User> {
+    use self::schema::users::dsl::*;
+    users.find(user)
+        .first(con)
+        .optional()
+        .unwrap()
+}
+
 pub fn number_of_users(con: &mut SqliteConnection) -> usize {
     use self::schema::users::dsl::*;
     users.count()

@@ -13,7 +13,7 @@ fs2 = "0.4.3"
 futures-util = "0.3.30"
 gstreamer = { version="0.23.0", default-features = false, features = [] }
 gstreamer-app = { version="0.23.0", default-features = false, features = [] }
-poem = { version = "3.1.0", features = ["static-files", "websocket"] }
+poem = { version = "3.1.5", features = ["cookie", "session", "static-files", "websocket"] }
 poem-openapi = "5.1.2"
 tokio = { version = "1.40.0", features = ["full"] }
 v4l = "0.14.0"
