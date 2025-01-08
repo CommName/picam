@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use config::Config;
+use db::models::User;
+use diesel::SqliteConnection;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::{prelude::*, ClockTime, State};
 use poem::endpoint::StaticFilesEndpoint;
@@ -9,15 +11,16 @@ use poem::listener::TcpListener;
 use poem::middleware::Cors;
 use poem::web::cookie::CookieKey;
 use poem::web::websocket::Message;
-use poem::web::Data;
-use poem::{get, EndpointExt, IntoResponse, Route, Server};
+use poem::web::{Data, Form, Json};
+use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Request, Response, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
 use tokio::sync::broadcast::Receiver;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use poem::session::{CookieConfig, CookieSession, Session};
 
 mod api_handlers;
+mod users;
 mod config;
 mod sys;
 mod video;
@@ -87,6 +90,67 @@ fn ws(
     })
 }
 
+pub struct Frontend {
+    index: StaticFilesEndpoint,
+    login_page: StaticFilesEndpoint,
+    init_page: StaticFilesEndpoint,
+    initialize: RwLock<bool>,
+    db: Arc<Mutex<SqliteConnection>>
+}
+
+impl Frontend {
+    pub async fn new(db: Arc<Mutex<SqliteConnection>>) -> Self {
+        let index = StaticFilesEndpoint::new("./frontend/index.html");
+        let login_page = StaticFilesEndpoint::new("./frontend/login.html");
+        let init_page = StaticFilesEndpoint::new("./frontend/init.html");
+        let mut db_con = db.lock().await; 
+        let initialize = RwLock::new(db::get_users(&mut db_con).len() > 0);
+        drop(db_con);
+
+        Self {
+            index,
+            login_page,
+            init_page,
+            initialize,
+            db
+        }
+    }
+}
+
+impl Endpoint for Frontend {
+    type Output = Response;
+    async fn call(&self, req: poem::Request) -> poem::Result<Self::Output> {
+        let (mut req, mut body) = req.split();
+        if req.method() == Method::GET {
+            let init = self.initialize.read().await.clone();
+            if init {
+                self.index.call(req).await
+            } else {
+                self.init_page.call(req).await
+            }
+
+        } else if req.method() == Method::POST {
+            let user= Form::<User>::from_request(&req,&mut body).await.unwrap();
+            println!("{:?}", user.0);
+            let init = self.initialize.read().await.clone();
+            if init {
+
+            } else {
+                let mut init = self.initialize.write().await;
+                crate::users::init_user(user.0, &self.db).await;
+                *init = true;
+
+            }
+            req.set_method(Method::GET);
+            self.index.call(req).await
+        } else {
+            // 404 Error !?
+            self.index.call(req).await
+        }
+        
+    }
+
+}
 
 pub async  fn get_moov_header(mut recv: Receiver<Arc<ParsedBuffer>>) -> Arc<Vec<Vec<u8>>> {
     let mut moov: Vec<Vec<u8>> = Vec::new();
@@ -156,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting server");
 
     let app = Route::new()
-        .nest("/", StaticFilesEndpoint::new("./frontend/index.html"))
+        .nest("/", Frontend::new(Arc::clone(&connection)).await)
         .nest("/pico.css", StaticFilesEndpoint::new("./frontend/pico.css"))
         .at("/ws",
             get(ws)

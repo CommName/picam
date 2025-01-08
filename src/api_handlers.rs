@@ -1,8 +1,8 @@
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use diesel::SqliteConnection;
-use poem::{session::Session, web};
-use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi};
+use poem::{session::Session, web, FromRequest};
+use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi, SecurityScheme};
 use tokio::sync::Mutex;
 use crate::db::{self, models::User};
 
@@ -13,7 +13,9 @@ pub enum Error {
     #[oai (status="404")]
     NotFound(Json<ErrorMessage>),
     #[oai (status="400")]
-    BadRequest(Json<ErrorMessage>)
+    BadRequest(Json<ErrorMessage>),
+    #[oai (status="401")]
+    AuthError(Json<ErrorMessage>)
 }
 
 #[derive(Object)]
@@ -30,6 +32,29 @@ enum AuthError {
     UserMissing,
     InccorectPassword
 }
+
+pub struct  AuthUser{
+    username: String
+}
+
+impl<'a> FromRequest<'a> for AuthUser {
+    async fn from_request(
+            req: &'a poem::Request,
+            body: &mut web::RequestBody,
+        ) -> poem::Result<Self> {
+        let session  = <&Session as FromRequest>::from_request(req, body).await?;
+
+        let username: String = session.get("user")
+            .ok_or_else(|| Error::AuthError(Json(ErrorMessage{
+                error: "Unauthenticated user".to_string()
+            })))?;
+
+        Ok(AuthUser {
+            username
+        })
+    }
+}
+
 
 impl From<AuthError> for Error {
     fn from(value: AuthError) -> Self {
@@ -87,18 +112,12 @@ impl Api {
 
     #[oai(path = "/users/init", method = "post")]
     async  fn init_user(&self, Json(admin): Json<User>,  db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        let mut db = db.lock().await;
-        let number_of_users = db::number_of_users(&mut db);
-        if number_of_users != 0 {
-            return;
-        }
-
-        db::create_user(&mut db, admin);
+        crate::users::init_user(admin, db.0).await;
     }
 
 
     #[oai(path = "/users", method = "get")]
-    async fn get_users(&self, db: web::Data<&Arc<Mutex<SqliteConnection>>>) -> Json<Vec<String>> {
+    async fn get_users(&self, db: web::Data<&Arc<Mutex<SqliteConnection>>>, _user: AuthUser) -> Json<Vec<String>> {
         let mut db = db.lock().await;
         let users = db::get_users(&mut db)
             .into_iter()
