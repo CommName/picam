@@ -1,5 +1,5 @@
 use std::sync::Arc;
-
+use api_handlers::AuthUser;
 use config::Config;
 use db::models::User;
 use diesel::SqliteConnection;
@@ -11,8 +11,8 @@ use poem::listener::TcpListener;
 use poem::middleware::Cors;
 use poem::web::cookie::CookieKey;
 use poem::web::websocket::Message;
-use poem::web::{Data, Form, Json};
-use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Request, Response, Route, Server};
+use poem::web::{Data, Form};
+use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
 use tokio::sync::broadcast::Receiver;
@@ -104,7 +104,9 @@ impl Frontend {
         let login_page = StaticFilesEndpoint::new("./frontend/login.html");
         let init_page = StaticFilesEndpoint::new("./frontend/init.html");
         let mut db_con = db.lock().await; 
-        let initialize = RwLock::new(db::get_users(&mut db_con).len() > 0);
+        let users = db::get_users(&mut db_con);
+        println!("{users:?}");
+        let initialize = RwLock::new(users.len() > 0);
         drop(db_con);
 
         Self {
@@ -124,25 +126,41 @@ impl Endpoint for Frontend {
         if req.method() == Method::GET {
             let init = self.initialize.read().await.clone();
             if init {
-                self.index.call(req).await
+                let auth_user = AuthUser::from_request(&req, &mut body).await;
+                if auth_user.is_ok() {
+                    self.index.call(req).await
+                } else {
+                    self.login_page.call(req).await
+                }
             } else {
                 self.init_page.call(req).await
             }
 
         } else if req.method() == Method::POST {
-            let user= Form::<User>::from_request(&req,&mut body).await.unwrap();
-            println!("{:?}", user.0);
+            let user= Form::<User>::from_request(&req,&mut body).await.unwrap();            
+            let session =  <&Session as FromRequest>::from_request(&req,&mut body).await?;
+
             let init = self.initialize.read().await.clone();
             if init {
+                let auth = users::auth_user(user.0, &self.db).await;
+                if let Ok(user) = auth {
+                    crate::users::set_session(&user, session);
+                    req.set_method(Method::GET);
+                    self.index.call(req).await
+                } else {
+                    req.set_method(Method::GET);
+                    self.login_page.call(req).await
+                }
 
             } else {
                 let mut init = self.initialize.write().await;
-                crate::users::init_user(user.0, &self.db).await;
+                crate::users::init_user(&user.0, &self.db).await;
                 *init = true;
-
+                crate::users::set_session(&user, session);
+                req.set_method(Method::GET);
+                
+                self.index.call(req).await
             }
-            req.set_method(Method::GET);
-            self.index.call(req).await
         } else {
             // 404 Error !?
             self.index.call(req).await

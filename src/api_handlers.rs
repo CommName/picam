@@ -28,7 +28,8 @@ struct PiCamClaim {
     user: String
 }
 
-enum AuthError {
+#[derive(Debug)]
+pub enum AuthError {
     UserMissing,
     InccorectPassword
 }
@@ -42,7 +43,7 @@ impl<'a> FromRequest<'a> for AuthUser {
             req: &'a poem::Request,
             body: &mut web::RequestBody,
         ) -> poem::Result<Self> {
-        let session  = <&Session as FromRequest>::from_request(req, body).await?;
+        let session: &Session  = <&Session as FromRequest>::from_request(req, body).await?;
 
         let username: String = session.get("user")
             .ok_or_else(|| Error::AuthError(Json(ErrorMessage{
@@ -112,7 +113,7 @@ impl Api {
 
     #[oai(path = "/users/init", method = "post")]
     async  fn init_user(&self, Json(admin): Json<User>,  db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        crate::users::init_user(admin, db.0).await;
+        crate::users::init_user(&admin, db.0).await;
     }
 
 
@@ -133,16 +134,10 @@ impl Api {
         db: web::Data<&Arc<Mutex<SqliteConnection>>>, 
         session: &Session,
     ) -> Result<Json<String>> {
-        let mut db = db.lock().await;
-        let db_user = db::get_user(&mut db, &user.username)
-            .ok_or_else(|| AuthError::UserMissing)?;
-        drop(db);
-        if db_user.password == user.password {
-            session.set("user", user.username.clone());
-            Ok(Json(user.username))
-        } else {
-            Err(AuthError::InccorectPassword.into())
-        }
+        let user = crate::users::auth_user(user, &db).await?;
+        crate::users::set_session(&user, session);
+
+        Ok(Json(user.username))
     }
 
     #[oai(path = "/users/update", method = "post")]
@@ -154,7 +149,7 @@ impl Api {
     #[oai(path = "/users/register", method = "post")]
     async  fn register_user(&self,  Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
         let mut db = db.lock().await;
-        db::create_user(&mut db, user);
+        db::create_user(&mut db, &user);
     }
 
 

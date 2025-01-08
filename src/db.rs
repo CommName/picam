@@ -53,9 +53,9 @@ pub fn update_user(con: &mut SqliteConnection, user: User) {
         .unwrap();
 }
 
-pub fn create_user(con: &mut SqliteConnection, user: User) {
+pub fn create_user(con: &mut SqliteConnection, user: &User) {
     diesel::insert_into(users::table)
-        .values(&user)
+        .values(user)
         .execute(con)
         .unwrap();
 
