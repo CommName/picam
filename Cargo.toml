@@ -9,8 +9,10 @@ edition = "2021"
 chrono = "0.4.38"
 diesel = { version = "2.2.6", features = ["returning_clauses_for_sqlite_3_35", "sqlite"] }
 diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
+env_logger = "0.11.6"
 fs2 = "0.4.3"
 futures-util = "0.3.30"
+glib = "0.20.7"
 gstreamer = { version="0.23.0", default-features = false, features = [] }
 gstreamer-app = { version="0.23.0", default-features = false, features = [] }
 log = "0.4.22"

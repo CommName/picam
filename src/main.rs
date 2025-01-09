@@ -4,7 +4,8 @@ use config::Config;
 use db::models::User;
 use diesel::SqliteConnection;
 use futures_util::{SinkExt, StreamExt};
-use gstreamer::{prelude::*, ClockTime, State};
+use gstreamer::glib::ControlFlow;
+use gstreamer::{prelude::*, ClockTime, MessageType, MessageView, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
@@ -15,9 +16,10 @@ use poem::web::{Data, Form};
 use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
-use tokio::sync::broadcast::Receiver;
+use tokio::sync::broadcast::{Receiver, Sender};
 use tokio::sync::{Mutex, RwLock};
 use poem::session::{CookieConfig, CookieSession, Session};
+use log::*;
 
 mod api_handlers;
 mod users;
@@ -105,7 +107,6 @@ impl Frontend {
         let init_page = StaticFilesEndpoint::new("./frontend/init.html");
         let mut db_con = db.lock().await; 
         let users = db::get_users(&mut db_con);
-        println!("{users:?}");
         let initialize = RwLock::new(users.len() > 0);
         drop(db_con);
 
@@ -190,10 +191,109 @@ pub struct ParsedBuffer {
     timestamp: Option<ClockTime>
 }
 
+pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
+
+    gstreamer::init().unwrap();
+    loop {
+        let pipeline = video::build_gstreamer_pipline(tx.clone(), &config);
+        let (tx, mut rx) = std::sync::mpsc::channel();
+        
+        match pipeline {
+            Ok(pipeline) => {
+                let pipeline_weak = pipeline.downgrade();
+                let Some(bus) = pipeline.bus() else {
+                    continue;
+                };
+                let main_loop = glib::MainLoop::new(None, false);
+                let main_loop_ref = main_loop.clone();
+                
+                let add_watch = bus.add_watch(move |_, message| {
+                    let main_loop = &main_loop_ref;
+                    println!("new message");
+                    debug!("New messaged on the buss: {message:?}");
+                    match message.view() {
+                        MessageView::Eos(_) => {
+                            error!("End of stream reached!, Restarting pipeline");
+                            tx.send(true);
+                            main_loop.quit();
+                        },
+                        MessageView::Error(err) => {;
+                            println!("Pipeline error: {err:?}");
+                            tx.send(true);
+                            main_loop.quit();
+                        },
+                        MessageView::StateChanged(statechange) => {
+                            match pipeline_weak.upgrade() {
+                                Some(pipeline) => {
+                                    let prev = statechange.old();
+                                    let curr = statechange.current();
+                                    info!("State changed from {prev:?} to {curr:?}");
+                                    match curr {
+                                        State::Null => {
+                                            tx.send(true);
+                                            main_loop.quit();
+                                            return  ControlFlow::Break;
+                                        },
+                                        State::Paused => {
+                                            if prev == State::Playing {
+                                                warn!("Pipline went from Playing state to Paused, restarting pipline");
+                                                pipeline.set_state(State::Playing);
+                                            }
+                                        },
+                                        State::Ready => {
+                                            if prev == State::Playing || prev== State::Paused {
+                                             warn!("Pipline went from Playing/Paused to Ready state");
+                                                // pipeline.set_state(State::Playing);
+                                                tx.send(true);
+                                                main_loop.quit();
+                                                return  ControlFlow::Break;
+                                            }
+                                        },
+                                        State::Playing => {
+                                            info!("Pipline is playing");
+                                        },
+                                        State::VoidPending => {
+                                            info!("Void pending");
+                                        }
+                                    }
+                                },
+                                None => {
+                                    tx.send(true);
+                                    main_loop.quit();
+                                    return ControlFlow::Break;
+                                }
+
+                            }
+
+                        },
+                        _ => {
+
+                        }
+                    }
+                    ControlFlow::Continue
+                });
+
+                info!("Starting pipline");
+                if let Err(e) = pipeline.set_state(State::Playing) {
+                    error!("Failed to start pipline {e:?}");
+                }
+                main_loop.run();
+                pipeline.set_state(State::Null);
+            },
+            Err(e) => {
+                error!("Error creating pipline: {e:?}");
+                break;
+            }
+        }
+    }
+    error!("Exiting watchdog!");
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
     let config = Config::from_env();
-    println!("Config file: {config:?}");
+    info!("Config file: {config:?}");
 
     let mut connection = db::establish_connection();
     db::update_db_migrations(&mut connection);
@@ -201,21 +301,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize GStreamer
     let devices = sys::Device::devices();
-    println!("Devices detected: {devices:?}");
-    gstreamer::init()?;
-    println!("Gstreamer initizalized");
+    info!("Devices detected: {devices:?}");
+    info!("Gstreamer initizalized");
 
     let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
-    let pipeline = video::build_gstreamer_pipline(tx.clone(), config)?;
-    println!("Pipeline created");
-
-
+    
     let tx2 = tx.clone();
+    std::thread::spawn(move || {
+        pipeline_watchdog(config.clone(), tx);
+    });
     
-    // Start playing
-    pipeline.set_state(State::Playing)?;
-    println!("Pipline started");
-    
+
+    // TODO change moov
     let moov = get_moov_header(rx).await;
 
     std::thread::spawn(move || {
@@ -254,10 +351,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run(app)
         .await;
 
-    // Stop the pipeline
-    pipeline.set_state(State::Null)?;
-
-    
 
     Ok(())
 }

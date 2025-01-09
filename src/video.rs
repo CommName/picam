@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use gstreamer::Element;
 use tokio::sync::broadcast::Sender;
+use log::*;
 
 use gstreamer::{prelude::*, BufferFlags, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline};
@@ -65,8 +66,8 @@ fn long_pipeline(config: &Config) -> Vec<Element> {
     vec![videoconvert, capsfilter, x264enc]
 }
 
-pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) -> Result<Pipeline, String> {
-
+pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config) -> Result<Pipeline, String> {
+    debug!("Createing new pipeline");
     // Create the elements
     let pipeline = Pipeline::new();
 
@@ -130,8 +131,6 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: Config) 
 
     let mut vec = Vec::with_capacity(1024);
 
-
-    println!("Started recv");
     let mut key_frame = true;
     let mut timestamp = None;
     let mut number_of_messages_to_forward = 0;
