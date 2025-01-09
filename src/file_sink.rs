@@ -1,8 +1,8 @@
 use std::{path::PathBuf, str::FromStr, sync::Arc, time::SystemTime};
 
-use tokio::{fs::File, io::AsyncWriteExt, sync::broadcast::Receiver};
+use tokio::{fs::File, io::AsyncWriteExt, sync::{broadcast::Receiver, RwLock}};
 
-use crate::ParsedBuffer;
+use crate::{MessageType, ParsedBuffer};
 
 const CREATE_NEW_FILE_THRESHOLD: u64 = 10 * 60;
 const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
@@ -16,17 +16,21 @@ pub struct FileSinkConfig {
     max_number_of_file: Option<u64>
 }
 
-pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<Vec<Vec<u8>>>) {
+pub async  fn file_saver(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<RwLock<Vec<Vec<u8>>>>) {
 
     let mut file = generate_new_file().await;
-    if let Err(_) = save_moov_header(&moov, &mut file).await {
+    // if let Err(_) = save_moov_header(&moov, &mut file).await {
         // TODO log and handle error
-    }
+    // }
 
     let mut timestamp_when_file_is_created = 0;
 
     while let Ok(buffer) = recv.recv().await {
-        if buffer.key_frame && should_create_new_file(&buffer,&mut timestamp_when_file_is_created) {
+        if buffer.message_type == MessageType::FirstFrame ||
+            (
+                buffer.message_type == MessageType::KeyFrame &&
+                should_create_new_file(&buffer,&mut timestamp_when_file_is_created)
+            ) {
             while should_file_be_rotated().await {
                 remove_oldest_file().await;
             }
@@ -106,8 +110,8 @@ fn should_create_new_file(buffer: &Arc<ParsedBuffer>, base_timestamp: &mut u64) 
     false
 }
 
-async fn save_moov_header(moov: &Arc<Vec<Vec<u8>>>, file: &mut File) -> Result<(), std::io::Error> {
-    for header in moov.iter() {
+async fn save_moov_header(moov: &Arc<RwLock<Vec<Vec<u8>>>>, file: &mut File) -> Result<(), std::io::Error> {
+    for header in moov.read().await.iter() {
         file.write(&header).await?;
     }
     Ok(())

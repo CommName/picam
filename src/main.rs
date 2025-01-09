@@ -5,7 +5,7 @@ use db::models::User;
 use diesel::SqliteConnection;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::glib::ControlFlow;
-use gstreamer::{prelude::*, ClockTime, MessageType, MessageView, State};
+use gstreamer::{prelude::*, ClockTime, MessageView, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
@@ -33,14 +33,14 @@ mod db;
 fn ws(
     ws: WebSocket,
     recv: Data<& tokio::sync::broadcast::Sender<Arc<ParsedBuffer>>>,
-    Data(moov): Data<&Arc<Vec<Vec<u8>>>>
+    Data(moov): Data<&Arc<RwLock<Vec<Vec<u8>>>>>
 ) -> impl IntoResponse {
     let mut receiver = recv.subscribe();
 
     let moov = Arc::clone(moov);
     ws.on_upgrade(move |socket| async move {
         let (mut sink, mut stream) = socket.split();
-        for pack in moov.iter() {
+        for pack in moov.read().await.iter() {
             let data = pack.clone();
             if sink.send(poem::web::websocket::Message::binary(data)).await.is_err() {
                 break;
@@ -53,21 +53,23 @@ fn ws(
             tokio::select! {
                 msg = receiver.recv() => {
                     if let Ok(msg) = msg {
-                        if let Err(_) = if iframe_sent {
-                            sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await
-                        } else {
-                            if msg.key_frame {
+                        match msg.message_type {
+                            MessageType::FirstFrame => {
+                                sink.send(Message::Close(None)); // TODO research and specify reason
+                                sink.close();
+                                return;
+                            },
+                            MessageType::KeyFrame if !iframe_sent => {
                                 iframe_sent = true;
-                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await
-                            } else {
+                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
+                            },
+                            _ if iframe_sent => {
+                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
+                            },
+                            _ => {
                                 continue;
                             }
-                        } {
-                            // Error sending a message
-                            let _ = sink.close();
-                            return;
-                        }
-                        
+                        };
                     }
             },
                 msg = stream.next() => {
@@ -171,23 +173,18 @@ impl Endpoint for Frontend {
 
 }
 
-pub async  fn get_moov_header(mut recv: Receiver<Arc<ParsedBuffer>>) -> Arc<Vec<Vec<u8>>> {
-    let mut moov: Vec<Vec<u8>> = Vec::new();
-    let mut number_of_buffs = 0;
-    while number_of_buffs < 2 {
-        if let Ok(buffer) = recv.recv().await {
-            moov.push(buffer.data.clone());
-            number_of_buffs += 1;
-        } else {
-            break;
-        }
-    }
-    Arc::new(moov)
+
+#[derive(PartialEq, Debug)]
+pub enum MessageType {
+    KeyFrame,
+    FirstFrame,
+    MoovPacket,
+    Fragment
 }
 
 pub struct ParsedBuffer {
     data: Vec<u8>,
-    key_frame: bool,
+    message_type: MessageType,
     timestamp: Option<ClockTime>
 }
 
@@ -196,7 +193,6 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
     gstreamer::init().unwrap();
     loop {
         let pipeline = video::build_gstreamer_pipline(tx.clone(), &config);
-        let (tx, mut rx) = std::sync::mpsc::channel();
         
         match pipeline {
             Ok(pipeline) => {
@@ -209,17 +205,14 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                 
                 let add_watch = bus.add_watch(move |_, message| {
                     let main_loop = &main_loop_ref;
-                    println!("new message");
                     debug!("New messaged on the buss: {message:?}");
                     match message.view() {
                         MessageView::Eos(_) => {
                             error!("End of stream reached!, Restarting pipeline");
-                            tx.send(true);
                             main_loop.quit();
                         },
-                        MessageView::Error(err) => {;
+                        MessageView::Error(err) => {
                             println!("Pipeline error: {err:?}");
-                            tx.send(true);
                             main_loop.quit();
                         },
                         MessageView::StateChanged(statechange) => {
@@ -230,7 +223,6 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                                     info!("State changed from {prev:?} to {curr:?}");
                                     match curr {
                                         State::Null => {
-                                            tx.send(true);
                                             main_loop.quit();
                                             return  ControlFlow::Break;
                                         },
@@ -244,7 +236,6 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                                             if prev == State::Playing || prev== State::Paused {
                                              warn!("Pipline went from Playing/Paused to Ready state");
                                                 // pipeline.set_state(State::Playing);
-                                                tx.send(true);
                                                 main_loop.quit();
                                                 return  ControlFlow::Break;
                                             }
@@ -258,7 +249,6 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                                     }
                                 },
                                 None => {
-                                    tx.send(true);
                                     main_loop.quit();
                                     return ControlFlow::Break;
                                 }
@@ -306,16 +296,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
     
+    let moov: Arc<RwLock<Vec<Vec<u8>>>> = Arc::new(RwLock::new(Vec::new()));
+
+    let moov2 = Arc::clone(&moov);
+    let file_sink_subscirber = tx.subscribe();
+    tokio::spawn(async move {
+        video::init_moov_header(file_sink_subscirber, moov2).await;
+    });
+
     let tx2 = tx.clone();
     std::thread::spawn(move || {
         pipeline_watchdog(config.clone(), tx);
-    });
-    
-
-    // TODO change moov
-    let moov = get_moov_header(rx).await;
-
-    std::thread::spawn(move || {
     });
 
     let moov2 = Arc::clone(&moov);

@@ -1,13 +1,14 @@
 
 use std::sync::Arc;
 
-use gstreamer::Element;
-use tokio::sync::broadcast::Sender;
+use gstreamer::{Element, MessageType};
+use tokio::sync::broadcast::{Receiver, Sender};
 use log::*;
 
 use gstreamer::{prelude::*, BufferFlags, FlowSuccess};
 use gstreamer::{ElementFactory, Pipeline};
 use gstreamer_app::AppSink;
+use tokio::sync::RwLock;
 
 use crate::config::Config;
 use crate::ParsedBuffer;
@@ -150,7 +151,11 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
                     if number_of_messages_to_forward < 2 {
                         let _ =send.send(Arc::new(ParsedBuffer{
                             data: slice,
-                            key_frame: true,
+                            message_type: if number_of_messages_to_forward == 0 {
+                                crate::MessageType::FirstFrame
+                            } else {
+                                crate::MessageType::MoovPacket
+                            },
                             timestamp: None,
                         }));
                         number_of_messages_to_forward += 1; 
@@ -168,7 +173,11 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
                     if slice[4] == 0x6d && slice[5] == 0x6f && slice[6] == 0x6f && slice[7] == 0x66 {
                         if let Err(_) = send.send(Arc::new(ParsedBuffer {
                             data: vec.clone(),
-                            key_frame,
+                            message_type: if key_frame {
+                                crate::MessageType::KeyFrame
+                            } else {
+                                crate::MessageType::Fragment
+                            },
                             timestamp
                         })) {
                                 // TODO log and handle error
@@ -187,4 +196,31 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
     );
 
     Ok(pipeline)
+}
+
+
+pub async  fn init_moov_header(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<RwLock<Vec<Vec<u8>>>>) -> Arc<Vec<Vec<u8>>> {
+
+    loop { 
+        let mut moov = moov.write().await;
+        loop {
+            if let Ok(buffer) = recv.recv().await {
+                if crate::MessageType::FirstFrame != buffer.message_type
+                    && crate::MessageType::MoovPacket != buffer.message_type {
+                        break;
+                }
+                moov.push(buffer.data.clone());
+            } else {
+                break;
+            }
+        }
+
+        drop(moov);
+
+        while let Ok(buffer) = recv.recv().await {
+            if let crate::MessageType::FirstFrame = buffer.message_type {
+                break;
+            }
+        }
+    }
 }
