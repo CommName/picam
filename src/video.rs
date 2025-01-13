@@ -1,7 +1,7 @@
 
 use std::sync::Arc;
 
-use gstreamer::{Element, MessageType};
+use gstreamer::Element;
 use tokio::sync::broadcast::{Receiver, Sender};
 use log::*;
 

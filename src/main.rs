@@ -16,7 +16,7 @@ use poem::web::{Data, Form};
 use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server};
 use poem::{handler, web::websocket::WebSocket};
 use poem_openapi::OpenApiService;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tokio::sync::{Mutex, RwLock};
 use poem::session::{CookieConfig, CookieSession, Session};
 use log::*;

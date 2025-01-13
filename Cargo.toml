@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
-diesel = { version = "2.2.6", features = ["returning_clauses_for_sqlite_3_35", "sqlite"] }
+diesel = { version = "2.2.6", features = ["sqlite"] }
 diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
 env_logger = "0.11.6"
 fs2 = "0.4.3"
