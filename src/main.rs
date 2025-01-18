@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 use api_handlers::AuthUser;
 use config::Config;
 use db::models::User;
@@ -269,6 +270,7 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                 }
                 main_loop.run();
                 pipeline.set_state(State::Null);
+                std::thread::sleep(Duration::from_secs(5));
             },
             Err(e) => {
                 error!("Error creating pipline: {e:?}");
@@ -282,8 +284,6 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let config = Config::from_env();
-    info!("Config file: {config:?}");
 
     let mut connection = db::establish_connection();
     db::update_db_migrations(&mut connection);
@@ -292,9 +292,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer
     let devices = sys::Device::devices();
     info!("Devices detected: {devices:?}");
+
+    let config = Config::find_optimal_settings(devices);
+    info!("Config file: {config:?}");
+
     info!("Gstreamer initizalized");
 
-    let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024);
+    let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
     
     let moov: Arc<RwLock<Vec<Vec<u8>>>> = Arc::new(RwLock::new(Vec::new()));
 

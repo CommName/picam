@@ -1,4 +1,7 @@
-use diesel::prelude::*;
+use std::time::Duration;
+
+use diesel::{prelude::*, r2d2::{ConnectionManager, Pool}};
+
 use models::User;
 use schema::users;
 pub mod models;
