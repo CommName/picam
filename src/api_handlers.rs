@@ -113,7 +113,7 @@ impl Api {
 
     #[oai(path = "/users/init", method = "post")]
     async  fn init_user(&self, Json(admin): Json<User>,  db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        crate::users::init_user(&admin, db.0).await;
+        crate::users::init_user(admin, db.0).await;
     }
 
 
@@ -149,7 +149,7 @@ impl Api {
     #[oai(path = "/users/register", method = "post")]
     async  fn register_user(&self,  Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
         let mut db = db.lock().await;
-        db::create_user(&mut db, &user);
+        db::create_user(&mut db, user);
     }
 
 

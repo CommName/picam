@@ -158,7 +158,7 @@ impl Endpoint for Frontend {
 
             } else {
                 let mut init = self.initialize.write().await;
-                crate::users::init_user(&user.0, &self.db).await;
+                crate::users::init_user(user.0.clone(), &self.db).await;
                 *init = true;
                 crate::users::set_session(&user, session);
                 req.set_method(Method::GET);

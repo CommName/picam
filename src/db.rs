@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use diesel::{prelude::*, r2d2::{ConnectionManager, Pool}};
+use diesel::prelude::*;
 
 use models::User;
 use schema::users;
@@ -8,6 +8,7 @@ pub mod models;
 pub mod schema;
 
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use sha3::{Digest, Sha3_256};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 pub fn establish_connection() -> SqliteConnection {
@@ -50,13 +51,23 @@ pub fn number_of_users(con: &mut SqliteConnection) -> usize {
 
 pub fn update_user(con: &mut SqliteConnection, user: User) {
     use self::schema::users::dsl::*;
+    let password_hash =  Sha3_256::digest(user.password);
+    let password_hash = format!("{:x}", password_hash);
+
     diesel::update(users.find(user.username))
-        .set(password.eq(user.password))
+        .set(password.eq(password_hash))
         .execute(con)
         .unwrap();
 }
 
-pub fn create_user(con: &mut SqliteConnection, user: &User) {
+pub fn create_user(con: &mut SqliteConnection, user: User) {
+    let password_hash =  Sha3_256::digest(user.password);
+    let password_hash = format!("{:x}", password_hash);
+    let user = User {
+        password: password_hash,
+        ..user
+    };
+
     diesel::insert_into(users::table)
         .values(user)
         .execute(con)
