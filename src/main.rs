@@ -4,6 +4,7 @@ use api_handlers::AuthUser;
 use config::Config;
 use db::models::User;
 use diesel::SqliteConnection;
+use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::glib::ControlFlow;
 use gstreamer::{prelude::*, ClockTime, MessageView, State};
@@ -293,7 +294,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let devices = sys::Device::devices();
     info!("Devices detected: {devices:?}");
 
-    let config = Config::find_optimal_settings(devices);
+    // let config = Config::find_optimal_settings(devices);
+    let config = Config::from_env();
     info!("Config file: {config:?}");
 
     info!("Gstreamer initizalized");
@@ -315,9 +317,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let moov2 = Arc::clone(&moov);
     let file_sink_subscirber = tx2.subscribe();
+    let (config_tx, config_rx) = tokio::sync::broadcast::channel(5);
     tokio::spawn(async move {
-        file_sink::file_saver(file_sink_subscirber, moov2).await;
+        file_sink::file_saver(file_sink_subscirber, moov2, config_rx).await;
     });
+
+    let _ = config_tx.send(Arc::new(FileSinkConfig::default()));
 
     let cors = Cors::new()
         .allow_method(Method::GET)
