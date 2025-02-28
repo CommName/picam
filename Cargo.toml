@@ -6,9 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1.86"
 chrono = "0.4.38"
-diesel = { version = "2.2.6", features = ["sqlite"] }
-diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
 env_logger = "0.11.6"
 fs2 = "0.4.3"
 futures-util = "0.3.30"
@@ -20,6 +19,7 @@ poem = { version = "3.1.5", features = ["cookie", "session", "static-files", "we
 poem-openapi = "5.1.2"
 serde = { version = "1.0.217", features = ["derive"] }
 sha3 = "0.10.8"
+sqlx = { version = "0.8.3", features = ["runtime-tokio-native-tls", "sqlite"] }
 tokio = { version = "1.40.0", features = ["full"] }
 v4l = "0.14.0"
 

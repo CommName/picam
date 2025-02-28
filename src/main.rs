@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use api_handlers::AuthUser;
 use config::Config;
-use db::models::User;
 use diesel::SqliteConnection;
 use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
@@ -11,17 +10,15 @@ use gstreamer::{prelude::*, ClockTime, MessageView, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
-use poem::middleware::Cors;
-use poem::web::cookie::CookieKey;
-use poem::web::websocket::Message;
-use poem::web::{Data, Form};
-use poem::{get, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server};
-use poem::{handler, web::websocket::WebSocket};
+use poem::web::{cookie::CookieKey, websocket::{Message, WebSocket}, Data, Form};
+use poem::{get, middleware::Cors, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server, handler};
 use poem_openapi::OpenApiService;
+use storage::Storage;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::{Mutex, RwLock};
 use poem::session::{CookieConfig, CookieSession, Session};
 use log::*;
+use models::*;
 
 mod api_handlers;
 mod users;
@@ -29,7 +26,8 @@ mod config;
 mod sys;
 mod video;
 mod file_sink;
-mod db;
+mod storage;
+mod models;
 
 #[handler]
 fn ws(
@@ -101,25 +99,20 @@ pub struct Frontend {
     login_page: StaticFilesEndpoint,
     init_page: StaticFilesEndpoint,
     initialize: RwLock<bool>,
-    db: Arc<Mutex<SqliteConnection>>
 }
 
 impl Frontend {
-    pub async fn new(db: Arc<Mutex<SqliteConnection>>) -> Self {
+    pub async fn new(storage: Arc<Storage>) -> Self {
         let index = StaticFilesEndpoint::new("./frontend/index.html");
         let login_page = StaticFilesEndpoint::new("./frontend/login.html");
         let init_page = StaticFilesEndpoint::new("./frontend/init.html");
-        let mut db_con = db.lock().await; 
-        let users = db::get_users(&mut db_con);
-        let initialize = RwLock::new(users.len() > 0);
-        drop(db_con);
+        let initialize = RwLock::new(storage.users.number_of_users().await > 0);
 
         Self {
             index,
             login_page,
             init_page,
             initialize,
-            db
         }
     }
 }
@@ -128,6 +121,7 @@ impl Endpoint for Frontend {
     type Output = Response;
     async fn call(&self, req: poem::Request) -> poem::Result<Self::Output> {
         let (mut req, mut body) = req.split();
+        let Data(storage):  Data<&Arc<Storage>> = Data::from_request_without_body(&req).await.unwrap();
         if req.method() == Method::GET {
             let init = self.initialize.read().await.clone();
             if init {
@@ -147,7 +141,7 @@ impl Endpoint for Frontend {
 
             let init = self.initialize.read().await.clone();
             if init {
-                let auth = users::auth_user(user.0, &self.db).await;
+                let auth = users::auth_user(user.0, &storage).await;
                 if let Ok(user) = auth {
                     crate::users::set_session(&user, session);
                     req.set_method(Method::GET);
@@ -159,7 +153,7 @@ impl Endpoint for Frontend {
 
             } else {
                 let mut init = self.initialize.write().await;
-                crate::users::init_user(user.0.clone(), &self.db).await;
+                users::init_user(user.0.clone(), &storage).await;
                 *init = true;
                 crate::users::set_session(&user, session);
                 req.set_method(Method::GET);
@@ -284,11 +278,9 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    const STORAGE_PATH: &str = "./picam.db";
     env_logger::init();
-
-    let mut connection = db::establish_connection();
-    db::update_db_migrations(&mut connection);
-    let connection = Arc::new(Mutex::new(connection));
+    let storage = Arc::new(storage::sqlite::SQLiteStorage(&STORAGE_PATH).await);
 
     // Initialize GStreamer
     let devices = sys::Device::devices();
@@ -335,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting server");
 
     let app = Route::new()
-        .nest("/", Frontend::new(Arc::clone(&connection)).await)
+        .nest("/", Frontend::new(Arc::clone(&storage)).await)
         .nest("/pico.css", StaticFilesEndpoint::new("./frontend/pico.css"))
         .at("/ws",
             get(ws)
@@ -343,14 +335,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .data(moov)
         )
         .nest("/api", api_service)
-            .data(connection)
+            .data(Arc::clone(&storage))
             .with(CookieSession::new(CookieConfig::signed(CookieKey::generate())))
             .with(cors);
 
-    let _ = Server::new(TcpListener::bind("0.0.0.0:8080"))
+    let w = Server::new(TcpListener::bind("0.0.0.0:8080"))
         .run(app)
         .await;
 
+    println!("{w:?}");
 
     Ok(())
 }

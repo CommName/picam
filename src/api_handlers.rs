@@ -1,10 +1,8 @@
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 
-use diesel::SqliteConnection;
 use poem::{session::Session, web, FromRequest};
-use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi, SecurityScheme};
-use tokio::sync::Mutex;
-use crate::db::{self, models::User};
+use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi};
+use crate::{models::*, storage::Storage};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -112,15 +110,14 @@ impl Api {
 
 
     #[oai(path = "/users/init", method = "post")]
-    async  fn init_user(&self, Json(admin): Json<User>,  db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        crate::users::init_user(admin, db.0).await;
+    async  fn init_user(&self, Json(admin): Json<User>,  storage: web::Data<&Arc<Storage>>) {
+        crate::users::init_user(admin, &storage).await;
     }
 
 
     #[oai(path = "/users", method = "get")]
-    async fn get_users(&self, db: web::Data<&Arc<Mutex<SqliteConnection>>>, _user: AuthUser) -> Json<Vec<String>> {
-        let mut db = db.lock().await;
-        let users = db::get_users(&mut db)
+    async fn get_users(&self, storage: web::Data<&Arc<Storage>>, _user: AuthUser) -> Json<Vec<String>> {
+        let users = storage.users.get_users().await
             .into_iter()
             .map(|u| u.username)
             .collect();
@@ -131,32 +128,29 @@ impl Api {
     async  fn auth(
         &self, 
         Json(user): Json<User>, 
-        db: web::Data<&Arc<Mutex<SqliteConnection>>>, 
+        storage: web::Data<&Arc<Storage>>, 
         session: &Session,
     ) -> Result<Json<String>> {
-        let user = crate::users::auth_user(user, &db).await?;
+        let user = crate::users::auth_user(user, &storage).await?;
         crate::users::set_session(&user, session);
 
         Ok(Json(user.username))
     }
 
     #[oai(path = "/users/update", method = "post")]
-    async  fn update_user(&self, Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        let mut db = db.lock().await;
-        db::update_user(&mut db, user);
+    async  fn update_user(&self, Json(user): Json<User>, storage: web::Data<&Arc<Storage>>) {
+        storage.users.update_user(&user).await;
     }
 
     #[oai(path = "/users/register", method = "post")]
-    async  fn register_user(&self,  Json(user): Json<User>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        let mut db = db.lock().await;
-        db::create_user(&mut db, user);
+    async  fn register_user(&self,  Json(user): Json<User>, storage: web::Data<&Arc<Storage>>) {
+        storage.users.create_user(&user).await;
     }
 
 
     #[oai(path = "/users/delete", method = "delete")]
-    async  fn delete_user(&self, Json(user): Json<String>, db: web::Data<&Arc<Mutex<SqliteConnection>>>) {
-        let mut db = db.lock().await;
-        db::delete_user(&mut db, user);
+    async  fn delete_user(&self, Json(user): Json<String>, storage: web::Data<&Arc<Storage>>) {
+        storage.users.delete_user(&user).await;
     }
 
 }
