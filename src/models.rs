@@ -9,7 +9,7 @@ pub struct User {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Object, Debug, Clone)]
 pub struct PipelineConfig {
     pub source: Option<String>,
     pub use_cam_builtin_encoder: Option<bool>,

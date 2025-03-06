@@ -1,8 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use api_handlers::AuthUser;
-use config::Config;
-use diesel::SqliteConnection;
+use video::Config;
 use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::glib::ControlFlow;
@@ -15,7 +14,7 @@ use poem::{get, middleware::Cors, Endpoint, EndpointExt, FromRequest, IntoRespon
 use poem_openapi::OpenApiService;
 use storage::Storage;
 use tokio::sync::broadcast::Sender;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use poem::session::{CookieConfig, CookieSession, Session};
 use log::*;
 use models::*;
@@ -208,7 +207,7 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                             main_loop.quit();
                         },
                         MessageView::Error(err) => {
-                            println!("Pipeline error: {err:?}");
+                            warn!("Pipeline error: {err:?}");
                             main_loop.quit();
                         },
                         MessageView::StateChanged(statechange) => {
@@ -265,7 +264,7 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                 }
                 main_loop.run();
                 pipeline.set_state(State::Null);
-                std::thread::sleep(Duration::from_secs(5));
+                std::thread::sleep(Duration::from_secs(15));
             },
             Err(e) => {
                 error!("Error creating pipline: {e:?}");
@@ -280,14 +279,14 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const STORAGE_PATH: &str = "./picam.db";
     env_logger::init();
-    let storage = Arc::new(storage::sqlite::SQLiteStorage(&STORAGE_PATH).await);
+    let storage = Arc::new(storage::sqlite::sqlite_storage(&STORAGE_PATH).await);
 
     // Initialize GStreamer
     let devices = sys::Device::devices();
     info!("Devices detected: {devices:?}");
 
     // let config = Config::find_optimal_settings(devices);
-    let config = Config::from_env();
+    let config = video::Config::from_env();
     info!("Config file: {config:?}");
 
     info!("Gstreamer initizalized");

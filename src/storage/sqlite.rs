@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use serde::{de::{value, DeserializeOwned}, Deserialize, Serialize};
-use sqlx::{migrate::MigrateDatabase, sqlite::SqliteRow, Executor, Row, Sqlite, SqlitePool};
+use sqlx::{migrate::MigrateDatabase, sqlite::SqliteRow, Decode, Encode, Executor, FromRow, Row, Sqlite, SqlitePool, Value, ValueRef};
 
 use super::{PipelineConfigStorage, UserStorage};
 use crate::models::*;
 use log::*;
 
 
-pub async fn SQLiteStorage(path: &str) -> super::Storage {
+async fn create_database_if_it_does_not_exist(path: &str) {
     if !Sqlite::database_exists(path).await.unwrap_or(false) {
         info!("Creating database {}", path);
         match Sqlite::create_database(path).await {
@@ -17,9 +17,28 @@ pub async fn SQLiteStorage(path: &str) -> super::Storage {
         }
     }
 
-    let db = Arc::new(SqlitePool::connect(path).await.unwrap());
+}
 
-    
+async fn run_migrations(db: &SqlitePool) {
+    let crate_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let migrations = std::path::Path::new(&crate_dir).join("./migrations");
+    let migration_results = sqlx::migrate::Migrator::new(migrations)
+        .await
+        .unwrap()
+        .run(db)
+        .await;
+    match migration_results {
+        Ok(_) => info!("Sucssesfully update database tables"),
+        Err(error) => {
+            panic!("Error running database migrations: {}", error);
+        }
+    }
+}
+
+pub async fn sqlite_storage(path: &str) -> super::Storage {
+    create_database_if_it_does_not_exist(path).await;
+    let db = Arc::new(SqlitePool::connect(path).await.unwrap());
+    run_migrations(&db).await;
     
     let users = SQLiteUserStorage {
         db: Arc::clone(&db)
@@ -104,40 +123,44 @@ pub struct SqliteCameraConfigStorage {
 }
 
 
-async fn fetch_config<T: DeserializeOwned>(key: &str, db: &SqlitePool) -> Option<T>{
-    let row = sqlx::query("SELECT value FROM pipelineconfig WHERE key = $1")
+async fn fetch_config(key: &str, db: &SqlitePool) -> Option<SqliteRow>{
+    let row = sqlx::query("SELECT key, value FROM pipelineconfig WHERE key = $1")
         .bind(key)
         .fetch_one(db)
         .await;
     match row {
         Ok(sql_row) => {
-            let json: String = sql_row.get("width");
-            serde_json::from_str(json.as_str()).ok()
+            Some(sql_row)
         },
         Err(sqlx::Error::RowNotFound) => {
             None
         }
         Err(e) => {
-            error!("Error fetching pipline config (width): {e:?}");
+            error!("Error fetching pipline config ({key}): {e:?}");
             None
         }
     }
+
 }
 
-async fn set_config<T: Serialize>(key: &str, value: &T, db: &SqlitePool ) {
-    sqlx::query("INSERT INTO pipelineconfig(key, value) VALUE($1, $2")
+async fn set_config<'a, T: sqlx::Type<Sqlite> + Encode<'a, Sqlite>>(key: &'a str, value: &'a T, db: &SqlitePool ) {
+    if let Err(e) = sqlx::query("INSERT INTO pipelineconfig(key, value) VALUES ($1, $2)")
         .bind(key)
-        .bind(&serde_json::to_string(value).unwrap())
-        .execute(db);
+        .bind(value)
+        .execute(db).await {
+            error!("Error saving pipeline config {e:?}");
+        }
 }
 
 async fn unset_config(key: &str, db: &SqlitePool) {
-    sqlx::query("DELETE FROM pipelineconfig where key=$1")
+    if let Err(e) = sqlx::query("DELETE FROM pipelineconfig where key=$1")
         .bind(key)
-        .execute(db);
+        .execute(db).await {
+            error!("Error removing old config {e:?}");
+        }
 }
 
-async  fn update_paramter<T:Serialize>(key: &str, value: &Option<T>, db: &SqlitePool) {
+async  fn update_paramter<'a, T: sqlx::Type<Sqlite> + Encode<'a, Sqlite>>(key: &'a str, value: &'a Option<T>, db: &SqlitePool) {
     unset_config(key, db).await;
     if let Some(value) = value {
         set_config(key, value, &db).await;
@@ -152,16 +175,16 @@ const SOURCE: &str = "source";
 impl PipelineConfigStorage for SqliteCameraConfigStorage {
 
     async fn width(&self) -> Option<i32> {
-        fetch_config(WIDTH, self.db.as_ref()).await
+        fetch_config(WIDTH, self.db.as_ref()).await.map(|r| r.get("value"))
     }
     async fn height(&self) -> Option<i32> {
-        fetch_config(HEIGHT, self.db.as_ref()).await
+        fetch_config(HEIGHT, self.db.as_ref()).await.map(|r| r.get("value"))
     }
     async fn use_cam_builtin_encoder(&self) -> Option<bool> {
-        fetch_config(USE_BUILT_IN_ENCODER, self.db.as_ref()).await
+        fetch_config(USE_BUILT_IN_ENCODER, self.db.as_ref()).await.map(|r| r.get("value"))
     }
     async fn source(&self) -> Option<String> {
-        fetch_config(SOURCE, self.db.as_ref()).await
+        fetch_config(SOURCE, self.db.as_ref()).await.map(|r| r.get("value"))
     }
 
     async fn set_width(&self, value: Option<i32>) {

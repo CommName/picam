@@ -153,4 +153,15 @@ impl Api {
         storage.users.delete_user(&user).await;
     }
 
+    #[oai(path= "/pipeline/config", method ="get")]
+    async fn get_config(&self,  storage: web::Data<&Arc<Storage>>) -> Json<PipelineConfig> {
+        let config = storage.camera_config.pipeline_config().await;
+        Json(config)
+    }
+
+    #[oai(path= "/pipeline/config", method ="post")]
+    async fn set_config(&self, config: Json<PipelineConfig>,  storage: web::Data<&Arc<Storage>>) {
+        storage.camera_config.set_pipeline_config(&config).await;
+    }
+
 }
