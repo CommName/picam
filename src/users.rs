@@ -14,7 +14,13 @@ pub async fn init_user(admin: User,  storage: &Arc<Storage>) {
         return;
     }
 
-    storage.users.create_user(&admin).await;
+    let password_hash =  Sha3_256::digest(admin.password);
+    let password_hash = format!("{:x}", password_hash);
+
+    storage.users.create_user(&User{
+        password: password_hash,
+        ..admin
+    }).await;
 }
 
 pub async fn auth_user(user: User, storage: &Arc<Storage>) -> Result<User, AuthError> {

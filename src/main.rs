@@ -328,6 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Route::new()
         .nest("/", Frontend::new(Arc::clone(&storage)).await)
         .nest("/pico.css", StaticFilesEndpoint::new("./frontend/pico.css"))
+        .nest("/picam.css", StaticFilesEndpoint::new("./frontend/picam.css"))
         .at("/ws",
             get(ws)
             .data(tx2)

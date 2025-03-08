@@ -2,65 +2,7 @@
 
 <head>
     <link rel="stylesheet" href="pico.css" />
-    <style>
-        #timeline-container {
-            width: 100%;
-            position: relative;
-            height: 50px;
-            background-color: transparent;
-            border: 1px solid #ccc;
-            overflow-x: scroll;
-            overflow-y: hidden;
-            margin-top: 20px;
-        }
-
-        #timeline {
-            position: absolute;
-            top: 0;
-            left: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: flex-start;
-            width: 100%;
-            white-space: nowrap;
-        }
-
-        .tick {
-            position: absolute;
-            width: 1px;
-            bottom: 0;
-            height: 30%;
-            background-color: gray;
-        }
-        .tickHeigh {
-            position: absolute;
-            width: 1px;
-            bottom: 0;
-            height: 60%;
-            background-color: white;
-        }
-
-        .tick-label {
-            position: absolute;
-            font-size: 10px;
-            top: 0px;
-            text-align: left;
-
-            height: 100px;
-            z-index: 1;
-
-        }
-
-        .tick-label-selected {
-            border: 2px solid var(--pico-primary);
-        }
-
-        .tick-label:hover {
-            border: 2px solid var(--pico-secondary);
-        }
-    </style>
+    <link rel="stylesheet" href="picam.css" />
 </head>
 
 <body st>
@@ -71,6 +13,7 @@
         <div class="grid">
             <button id="goToLivePageButton" onclick="goToLivePage()">Live</button>
             <button id="goToArchivePageButton" class="secondary" onclick="goToArchivePage()">Archive</button>
+            <button id="goToConfigPageButton" class="secondary" onclick="goToConfigPage()">Config</button>
         </div>
     </header>
     <main class="container">
@@ -79,11 +22,19 @@
                 <div id="timeline"></div>
             </div>
         </div>
-        <video style="width: 100%;" id="player" autoplay></video>
+        <div class="container" id="playerDiv">
+            <video style="width: 100%;" id="player" autoplay></video>
+        </div>
         <progress id="progress"></progress>
+        <div style="visibility: collapse;" class="container" id="config">
+            <table id="pipeline_config">
+            </table>
+            <button id="saveConfig" onclick="saveConfig()">Save</button>
+        </div>
     </main>
 </body>
 <script>
+
 function createTimeline(archiveList) {
     const timeline = document.getElementById('timeline');
     timeline.innerHTML = "";
@@ -147,9 +98,70 @@ function createTimeline(archiveList) {
     let collectedData = [];
     let opened = false;
 
+    function hideDiv(div) {
+        div.style.visibility = "collapse";
+        div.style.display = "none";
+    }
+
+    function showDiv(div) {
+        div.style.visibility = "visible";
+        div.style.display = "inline-block";
+    }
+
+    function setPage(button) {
+        hideDiv(document.getElementById("progress"));
+        hideDiv(document.getElementById("archive"));
+        hideDiv(document.getElementById("config"));
+        hideDiv(document.getElementById("playerDiv"));
+
+        if(button == "live") {
+            document.getElementById("goToLivePageButton").className = "";
+            showDiv(document.getElementById("playerDiv"));
+            showDiv(document.getElementById("progress"));
+        } else {
+            document.getElementById("goToLivePageButton").className = "secondary";
+        }
+
+        if(button == "archive") {
+            document.getElementById("goToArchivePageButton").className = "";
+            showDiv(document.getElementById("playerDiv"));
+            showDiv(document.getElementById("archive"));
+        } else {
+            document.getElementById("goToArchivePageButton").className = "secondary";
+        }
+
+        if(button == "config") {
+            document.getElementById("goToConfigPageButton").className = "";
+            showDiv(document.getElementById("config"));
+        } else {
+            document.getElementById("goToConfigPageButton").className = "secondary";
+        }
+    }
+
+    function saveConfig() {
+        const configTable = document.getElementById("pipeline_config");
+        const inputValues = configTable.getElementsByTagName("input");
+        let config = {};
+        for (let i=0; i < inputValues.length; i++ ) {
+            try {
+                config[inputValues[i].name] = JSON.parse(inputValues[i].value);
+            } catch(e) {
+                const value = inputValues[i].value;
+                config[inputValues[i].name] = value === "auto" ? null : value;
+            }
+        }
+
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+            }
+        };
+        xhttp.open("POST", "./api/pipeline/config", true);
+        xhttp.send(JSON.stringify(config));
+    }
+
     function goToLivePage() {
-        document.getElementById("goToLivePageButton").className = "";
-        document.getElementById("goToArchivePageButton").className = "secondary";
+        setPage("live");
         document.getElementById("progress").style.visibility = "visible";
         document.getElementById("archive").style.visibility = "collapse";
         removeVideoSrc();
@@ -157,8 +169,7 @@ function createTimeline(archiveList) {
     }
 
     function goToArchivePage() {
-        document.getElementById("goToLivePageButton").className = "secondary";
-        document.getElementById("goToArchivePageButton").className = "";
+        setPage("archive");
 
         if (socket != null) {
             socket.close(1000);
@@ -167,6 +178,68 @@ function createTimeline(archiveList) {
         document.getElementById("progress").style.visibility = "collapse";
         document.getElementById("archive").style.visibility = "visible";
         refreshArchive();
+    }
+
+    function goToConfigPage() {
+        setPage("config");
+
+        if (socket != null) {
+            socket.close(1000);
+        }
+        removeVideoSrc();
+        document.getElementById("progress").style.visibility = "collapse";
+        document.getElementById("archive").style.visibility = "collapse";
+
+        refreshConfig();
+
+    }
+    let pipeline_config = {};
+
+    function refreshConfig() {
+        var xhttp = new XMLHttpRequest();
+        xhttp.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+                let config = JSON.parse(xhttp.responseText);
+                loadConfigTable(config);
+            }
+        };
+        xhttp.open("GET", "./api/pipeline/config", true);
+        xhttp.send();
+
+    }
+
+    function loadConfigTable(config) {
+        let configTable = document.getElementById("pipeline_config")
+        addConfigTableHeader(configTable);
+        for (const [key, value] of Object.entries(config)) {
+            addConfigEntry(key,value, configTable);
+        }
+    }
+
+    function addConfigTableHeader(table) {
+        table.innerHTML = "";
+        let tr = document.createElement("tr");
+        let headerKey = document.createElement("th");
+        headerKey.innerHTML = "Key";
+        let headerValue = document.createElement("th");
+        headerValue.innerHTML = "Value";
+        tr.appendChild(headerKey);
+        tr.appendChild(headerValue);
+        table.appendChild(tr);
+    }
+
+    function addConfigEntry(key, value, table) {
+        let tr = document.createElement("tr");
+        let tdKey = document.createElement("td");
+        tdKey.innerHTML = key;
+        let tdValue = document.createElement("td");
+        let inputValue = document.createElement("input");
+        inputValue.name = key;
+        inputValue.value = value ?? "auto";
+        tr.appendChild(tdKey);
+        tr.appendChild(tdValue);
+        tdValue.appendChild(inputValue);
+        table.appendChild(tr);
     }
 
     function playRecording(recording) {
@@ -217,18 +290,15 @@ function createTimeline(archiveList) {
     function createVideoSource() {
         mediaSource = new MediaSource();
         mediaSource.addEventListener("sourceopen", this.onSourceOpen);
-        
         video.src = URL.createObjectURL(mediaSource);
         video.load();
     }
-
 
     function onSourceOpen() {
         if (opened) {
             return;
         }
         opened = true;
-
         let codec = 'video/mp4; codecs="avc1.42E01e"';
         if (!MediaSource.isTypeSupported(codec)) {
             console.error("Codec not supported");
@@ -237,7 +307,6 @@ function createTimeline(archiveList) {
         sourceBuffer = mediaSource.addSourceBuffer(codec);
         sourceBuffer.mode = "sequence";
         sourceBuffer.addEventListener("updateend", () => {
-
         });
 
         function addToBuffer(data) {
@@ -251,23 +320,13 @@ function createTimeline(archiveList) {
                 }
             }
         }
-
-
         // Open websocket
         socket = new WebSocket("ws://"+window.location.host+"/ws");
-
         socket.addEventListener("message", async (event) => {
             let data = await event.data.arrayBuffer();
             addToBuffer(data);
         });
-
     }
-
     createVideoSource();
-
-
-
-
-</script>
-
+    </script>
 </html>
