@@ -6,8 +6,6 @@ pub struct Config {
     pub bind: String,
 }
 
-
-
 impl Config {
 
     pub fn from_env() -> Self {

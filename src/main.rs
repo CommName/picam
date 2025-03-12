@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::time::Duration;
-use api_handlers::AuthUser;
 use config::Config;
 use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
@@ -9,15 +8,14 @@ use gstreamer::{prelude::*, ClockTime, MessageView, State};
 use poem::endpoint::StaticFilesEndpoint;
 use poem::http::Method;
 use poem::listener::TcpListener;
-use poem::web::{cookie::CookieKey, websocket::{Message, WebSocket}, Data, Form};
-use poem::{get, middleware::Cors, Endpoint, EndpointExt, FromRequest, IntoResponse, Response, Route, Server, handler};
+use poem::web::{cookie::CookieKey, websocket::{Message, WebSocket}, Data};
+use poem::{get, middleware::Cors, EndpointExt, IntoResponse, Route, Server, handler};
 use poem_openapi::OpenApiService;
 use storage::Storage;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
-use poem::session::{CookieConfig, CookieSession, Session};
+use poem::session::{CookieConfig, CookieSession};
 use log::*;
-use models::*;
 
 mod api_handlers;
 mod users;
@@ -26,6 +24,7 @@ mod video;
 mod file_sink;
 mod storage;
 mod models;
+mod frontend;
 
 #[handler]
 fn ws(
@@ -90,81 +89,6 @@ fn ws(
 
 
     })
-}
-
-pub struct Frontend {
-    index: StaticFilesEndpoint,
-    login_page: StaticFilesEndpoint,
-    init_page: StaticFilesEndpoint,
-    initialize: RwLock<bool>,
-}
-
-impl Frontend {
-    pub async fn new(storage: Arc<Storage>) -> Self {
-        let index = StaticFilesEndpoint::new("./frontend/index.html");
-        let login_page = StaticFilesEndpoint::new("./frontend/login.html");
-        let init_page = StaticFilesEndpoint::new("./frontend/init.html");
-        let initialize = RwLock::new(storage.users.number_of_users().await > 0);
-
-        Self {
-            index,
-            login_page,
-            init_page,
-            initialize,
-        }
-    }
-}
-
-impl Endpoint for Frontend {
-    type Output = Response;
-    async fn call(&self, req: poem::Request) -> poem::Result<Self::Output> {
-        let (mut req, mut body) = req.split();
-        let Data(storage):  Data<&Arc<Storage>> = Data::from_request_without_body(&req).await.unwrap();
-        if req.method() == Method::GET {
-            let init = self.initialize.read().await.clone();
-            if init {
-                let auth_user = AuthUser::from_request(&req, &mut body).await;
-                if auth_user.is_ok() {
-                    self.index.call(req).await
-                } else {
-                    self.login_page.call(req).await
-                }
-            } else {
-                self.init_page.call(req).await
-            }
-
-        } else if req.method() == Method::POST {
-            let user= Form::<User>::from_request(&req,&mut body).await.unwrap();            
-            let session =  <&Session as FromRequest>::from_request(&req,&mut body).await?;
-
-            let init = self.initialize.read().await.clone();
-            if init {
-                let auth = users::auth_user(user.0, &storage).await;
-                if let Ok(user) = auth {
-                    crate::users::set_session(&user, session);
-                    req.set_method(Method::GET);
-                    self.index.call(req).await
-                } else {
-                    req.set_method(Method::GET);
-                    self.login_page.call(req).await
-                }
-
-            } else {
-                let mut init = self.initialize.write().await;
-                users::init_user(user.0.clone(), &storage).await;
-                *init = true;
-                crate::users::set_session(&user, session);
-                req.set_method(Method::GET);
-                
-                self.index.call(req).await
-            }
-        } else {
-            // 404 Error !?
-            self.index.call(req).await
-        }
-        
-    }
-
 }
 
 
@@ -327,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting server");
 
     let app = Route::new()
-        .nest("/", Frontend::new(Arc::clone(&storage)).await)
+        .nest("/", frontend::Frontend::new(Arc::clone(&storage)).await)
         .nest("/pico.css", StaticFilesEndpoint::new("./frontend/pico.css"))
         .nest("/picam.css", StaticFilesEndpoint::new("./frontend/picam.css"))
         .at("/ws",
