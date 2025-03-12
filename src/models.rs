@@ -13,6 +13,6 @@ pub struct User {
 pub struct PipelineConfig {
     pub source: Option<String>,
     pub use_cam_builtin_encoder: Option<bool>,
-    pub width: Option<i32>,
-    pub height: Option<i32>
+    pub width: Option<u32>,
+    pub height: Option<u32>
 }

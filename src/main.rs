@@ -183,12 +183,19 @@ pub struct ParsedBuffer {
     timestamp: Option<ClockTime>
 }
 
-pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
+pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffer>>) {
 
     gstreamer::init().unwrap();
+
     loop {
+        let config = storage.camera_config.pipeline_config().await;
+        let devices = storage.devices.devices().await;
+        let config = Config::find_optimal_settings(devices, config);
+
+        info!("Starting new pipline with config: {config:?}");
+
         let pipeline = video::build_gstreamer_pipline(tx.clone(), &config);
-        
+
         match pipeline {
             Ok(pipeline) => {
                 let pipeline_weak = pipeline.downgrade();
@@ -197,7 +204,7 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
                 };
                 let main_loop = glib::MainLoop::new(None, false);
                 let main_loop_ref = main_loop.clone();
-                
+
                 let add_watch = bus.add_watch(move |_, message| {
                     let main_loop = &main_loop_ref;
                     debug!("New messaged on the buss: {message:?}");
@@ -279,15 +286,11 @@ pub fn pipeline_watchdog(config: Config, tx: Sender<Arc<ParsedBuffer>>) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const STORAGE_PATH: &str = "./picam.db";
     env_logger::init();
-    let storage = Arc::new(storage::sqlite::sqlite_storage(&STORAGE_PATH).await);
+    let storage = Arc::new(Storage::new_sqlite(&STORAGE_PATH).await);
 
     // Initialize GStreamer
     let devices = sys::Device::devices();
     info!("Devices detected: {devices:?}");
-
-    // let config = Config::find_optimal_settings(devices);
-    let config = video::Config::from_env();
-    info!("Config file: {config:?}");
 
     info!("Gstreamer initizalized");
 
@@ -302,8 +305,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let tx2 = tx.clone();
-    std::thread::spawn(move || {
-        pipeline_watchdog(config.clone(), tx);
+    let storage2 = Arc::clone(&storage);
+    tokio::task::spawn(async move {
+        pipeline_watchdog(storage2, tx).await;
     });
 
     let moov2 = Arc::clone(&moov);

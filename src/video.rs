@@ -13,16 +13,10 @@ use tokio::sync::RwLock;
 use v4l::framesize::FrameSizeEnum;
 
 
+use crate::models::PipelineConfig;
 use crate::sys::Device;
 use crate::ParsedBuffer;
 
-#[derive(Debug, Clone)]
-pub struct PipelineConfig {
-    pub source: Option<String>,
-    pub use_cam_builtin_encoder: Option<bool>,
-    pub width: Option<i32>,
-    pub height: Option<i32>
-}
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -267,7 +261,7 @@ impl Config {
         }
     }
 
-    pub fn find_optimal_settings(devices: HashMap<String, Device>) -> Self {
+    pub fn find_optimal_settings(devices: &HashMap<String, Device>, config: PipelineConfig) -> Self {
 
         let mut source = "".to_string();
         let mut use_cam_builtin_encoder = false;
@@ -275,19 +269,34 @@ impl Config {
         let mut max_height = 0;
         let mut max_resolition = 0;
 
+
         for (_, device) in devices {
-            for cap in device.capabilities {
+            if check_set_parameter(&device.path.to_string(), &config.source) {
+                continue;
+            }
+
+            for cap in device.capabilities.iter() {
                 let support_for_builtin_encoder = format_supports_builtin_encoder(&cap.format);
+                if check_set_parameter(&support_for_builtin_encoder, &config.use_cam_builtin_encoder) {
+                    continue;
+                }
                 if support_for_builtin_encoder || !use_cam_builtin_encoder {
-                    for res in cap.resolution {
+                    for res in cap.resolution.iter() {
                         let (res, width, height) = match res {
                             FrameSizeEnum::Discrete(d) => {
                                 (d.width *d.height ,d.width, d.height)
                             },
                             FrameSizeEnum::Stepwise(s) => {
-                                (s.max_width * s.max_height, s.max_width, s.max_height)
+                                let width = config.width.clone().unwrap_or(0).max(s.max_width);
+                                let height = config.height.clone().unwrap_or(0).max(s.max_height);
+                                // TODO keep the aspect ratio
+                                (width * height, width, height)
                             }
                         };
+                        if check_set_parameter(&width, &config.width) ||
+                            check_set_parameter(&height, &config.height) {
+                            continue;
+                        }
 
                         if max_resolition < res {
                             source = device.path.clone();
@@ -313,4 +322,11 @@ impl Config {
 
 fn format_supports_builtin_encoder(format: &str) -> bool {
     format.to_uppercase() == "H264"
+}
+
+fn check_set_parameter<T: PartialEq>(parm: &T, set_parm: &Option<T>) -> bool {
+    if let Some(ref set_parm) = set_parm {
+        return parm != set_parm;
+    }
+    return false;
 }

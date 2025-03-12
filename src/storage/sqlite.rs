@@ -35,7 +35,7 @@ async fn run_migrations(db: &SqlitePool) {
     }
 }
 
-pub async fn sqlite_storage(path: &str) -> super::Storage {
+pub async fn sqlite_storage(path: &str) -> (Box<SQLiteUserStorage>, Box<SqliteCameraConfigStorage>) {
     create_database_if_it_does_not_exist(path).await;
     let db = Arc::new(SqlitePool::connect(path).await.unwrap());
     run_migrations(&db).await;
@@ -47,10 +47,10 @@ pub async fn sqlite_storage(path: &str) -> super::Storage {
         db: Arc::clone(&db)
     };
 
-    super::Storage { 
-        users: Box::new(users),
-        camera_config: Box::new(camera_config)
-    }
+    ( 
+     Box::new(users),
+     Box::new(camera_config)
+    )
 }
 
 pub struct SQLiteUserStorage {
@@ -174,10 +174,10 @@ const SOURCE: &str = "source";
 #[async_trait::async_trait]
 impl PipelineConfigStorage for SqliteCameraConfigStorage {
 
-    async fn width(&self) -> Option<i32> {
+    async fn width(&self) -> Option<u32> {
         fetch_config(WIDTH, self.db.as_ref()).await.map(|r| r.get("value"))
     }
-    async fn height(&self) -> Option<i32> {
+    async fn height(&self) -> Option<u32> {
         fetch_config(HEIGHT, self.db.as_ref()).await.map(|r| r.get("value"))
     }
     async fn use_cam_builtin_encoder(&self) -> Option<bool> {
@@ -187,10 +187,10 @@ impl PipelineConfigStorage for SqliteCameraConfigStorage {
         fetch_config(SOURCE, self.db.as_ref()).await.map(|r| r.get("value"))
     }
 
-    async fn set_width(&self, value: Option<i32>) {
+    async fn set_width(&self, value: Option<u32>) {
         update_paramter(WIDTH, &value, &self.db).await;
     }
-    async fn set_height(&self, value: Option<i32>) {
+    async fn set_height(&self, value: Option<u32>) {
         update_paramter(HEIGHT, &value, &self.db).await;
     }
     async fn set_use_cam_builtin_encoder(&self, value: Option<bool>) {
