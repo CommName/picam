@@ -1,8 +1,8 @@
 
 
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
-use crate::sys::Device;
+use crate::models::*;
 
 use super::DeviceStorage;
 

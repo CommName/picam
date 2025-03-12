@@ -1,18 +1,8 @@
-use poem_openapi::Object;
-use serde::{Deserialize, Serialize};
 
+pub mod users;
+pub mod pipeline_config;
+pub mod devices;
 
-#[derive(Object, Serialize, Deserialize, Debug, Clone)]
-pub struct User {
-    pub username: String,
-    pub password: String
-}
-
-
-#[derive(Object, Debug, Clone)]
-pub struct PipelineConfig {
-    pub source: Option<String>,
-    pub use_cam_builtin_encoder: Option<bool>,
-    pub width: Option<u32>,
-    pub height: Option<u32>
-}
+pub use users::User;
+pub use pipeline_config::PipelineConfig;
+pub use devices::Device;

@@ -32,8 +32,8 @@ pub enum AuthError {
     InccorectPassword
 }
 
-pub struct  AuthUser{
-    username: String
+pub struct AuthUser{
+    _username: String
 }
 
 impl<'a> FromRequest<'a> for AuthUser {
@@ -49,7 +49,7 @@ impl<'a> FromRequest<'a> for AuthUser {
             })))?;
 
         Ok(AuthUser {
-            username
+            _username: username
         })
     }
 }

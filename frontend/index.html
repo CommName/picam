@@ -157,6 +157,7 @@ function createTimeline(archiveList) {
             }
         };
         xhttp.open("POST", "./api/pipeline/config", true);
+        xhttp.setRequestHeader("Content-type", "application/json");
         xhttp.send(JSON.stringify(config));
     }
 

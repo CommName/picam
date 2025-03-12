@@ -1,6 +1,5 @@
-use std::{any::Any, collections::HashMap};
-
-use crate::{models::*, sys::Device};
+use std::collections::HashMap;
+use crate::models::*;
 
 pub mod sqlite;
 pub mod memory;

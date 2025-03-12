@@ -26,7 +26,7 @@ impl Default for FileSinkConfig {
             app_data: APP_DATA_PATH.to_string(),
             max_file_duration: Some(CREATE_NEW_FILE_THRESHOLD),
             max_number_of_file: Some(MAX_NUMBER_OF_FILES),
-            max_system_usage: 0.9,
+            max_system_usage: MAX_FS_USAGE,
         }
     }
 }
@@ -44,11 +44,12 @@ pub async fn file_saver(
 
     let mut timestamp_when_file_is_created = 0;
 
-    tokio::select! {
-        recv = recv.recv() => {
-            match recv {
-                Ok(buffer) => {
-                    if buffer.message_type == MessageType::FirstFrame ||
+    loop {
+        tokio::select! {
+            recv = recv.recv() => {
+                match recv {
+                    Ok(buffer) => {
+                        if buffer.message_type == MessageType::FirstFrame ||
                     (
                         buffer.message_type == MessageType::KeyFrame &&
                         should_create_new_file(&buffer,&mut timestamp_when_file_is_created, &config)
@@ -76,6 +77,7 @@ pub async fn file_saver(
                 config = new_config;
             }
 
+        }
         }
     }
 }

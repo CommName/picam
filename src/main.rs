@@ -22,7 +22,6 @@ use models::*;
 mod api_handlers;
 mod users;
 mod config;
-mod sys;
 mod video;
 mod file_sink;
 mod storage;
@@ -54,16 +53,16 @@ fn ws(
                     if let Ok(msg) = msg {
                         match msg.message_type {
                             MessageType::FirstFrame => {
-                                sink.send(Message::Close(None)); // TODO research and specify reason
-                                sink.close();
+                                let _ = sink.send(Message::Close(None)).await; // TODO research and specify reason
+                                let _ = sink.close().await;
                                 return;
                             },
                             MessageType::KeyFrame if !iframe_sent => {
                                 iframe_sent = true;
-                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
+                                let _ = sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
                             },
                             _ if iframe_sent => {
-                                sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
+                                let _ = sink.send(poem::web::websocket::Message::binary(msg.data.clone())).await;
                             },
                             _ => {
                                 continue;
@@ -205,7 +204,7 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                 let main_loop = glib::MainLoop::new(None, false);
                 let main_loop_ref = main_loop.clone();
 
-                let add_watch = bus.add_watch(move |_, message| {
+                let _ = bus.add_watch(move |_, message| {
                     let main_loop = &main_loop_ref;
                     debug!("New messaged on the buss: {message:?}");
                     match message.view() {
@@ -231,7 +230,10 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                                         State::Paused => {
                                             if prev == State::Playing {
                                                 warn!("Pipline went from Playing state to Paused, restarting pipline");
-                                                pipeline.set_state(State::Playing);
+                                                if let Err(e) = pipeline.set_state(State::Playing) {
+                                                    error!("Error when restarting pipeline {e:?}");
+                                                    return ControlFlow::Break;
+                                                }
                                             }
                                         },
                                         State::Ready => {
@@ -270,7 +272,7 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                     error!("Failed to start pipline {e:?}");
                 }
                 main_loop.run();
-                pipeline.set_state(State::Null);
+                let _ = pipeline.set_state(State::Null);
                 std::thread::sleep(Duration::from_secs(15));
             },
             Err(e) => {
@@ -285,16 +287,11 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     const STORAGE_PATH: &str = "./picam.db";
+    const BIND: &str = "0.0.0.0:8080";
     env_logger::init();
     let storage = Arc::new(Storage::new_sqlite(&STORAGE_PATH).await);
 
-    // Initialize GStreamer
-    let devices = sys::Device::devices();
-    info!("Devices detected: {devices:?}");
-
-    info!("Gstreamer initizalized");
-
-    let (tx, rx) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
+    let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
     
     let moov: Arc<RwLock<Vec<Vec<u8>>>> = Arc::new(RwLock::new(Vec::new()));
 
@@ -343,11 +340,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(CookieSession::new(CookieConfig::signed(CookieKey::generate())))
             .with(cors);
 
-    let w = Server::new(TcpListener::bind("0.0.0.0:8080"))
+    info!("Listening on: {BIND}");
+    if let Err(e) = Server::new(TcpListener::bind(BIND))
         .run(app)
-        .await;
-
-    println!("{w:?}");
+        .await {
+            error!("Error starting server: {e:?}")
+    }
 
     Ok(())
 }

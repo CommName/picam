@@ -1,8 +1,5 @@
 use std::sync::Arc;
-
-use serde::{de::{value, DeserializeOwned}, Deserialize, Serialize};
-use sqlx::{migrate::MigrateDatabase, sqlite::SqliteRow, Decode, Encode, Executor, FromRow, Row, Sqlite, SqlitePool, Value, ValueRef};
-
+use sqlx::{migrate::MigrateDatabase, sqlite::SqliteRow, Encode, Row, Sqlite, SqlitePool};
 use super::{PipelineConfigStorage, UserStorage};
 use crate::models::*;
 use log::*;
@@ -95,7 +92,14 @@ impl UserStorage for SQLiteUserStorage {
         res as usize
     }
     async fn update_user(&self, user: &User) {
-        todo!()
+        let _ = sqlx::query("UPDATE users SET password=$1 where username=$2")
+            .bind(&user.password)
+            .bind(&user.username)
+            .execute(self.db.as_ref())
+            .await
+            .map_err(|e| {
+                error!("Error updating user into db {e:?}")
+            });
     }
     async fn create_user(&self, user: &User) {
         let _ = sqlx::query("INSERT INTO users (username, password) values ($1, $2)")

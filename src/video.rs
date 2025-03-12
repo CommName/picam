@@ -13,8 +13,7 @@ use tokio::sync::RwLock;
 use v4l::framesize::FrameSizeEnum;
 
 
-use crate::models::PipelineConfig;
-use crate::sys::Device;
+use crate::models::*;
 use crate::ParsedBuffer;
 
 
@@ -232,34 +231,6 @@ pub async  fn init_moov_header(mut recv: Receiver<Arc<ParsedBuffer>>, moov: Arc<
 
 
 impl Config {
-    pub fn from_env() -> Self {
-        let source = std::env::var("SOURCE")
-            .unwrap_or_else(|_| String::from("/dev/video0"));
-
-        let use_cam_builtin_encoder = std::env::var("BUILT_IN_ENCODER")
-            .map(|p| p.parse::<bool>().ok())
-            .ok()
-            .flatten()
-            .unwrap_or(true);
-
-        let width = std::env::var("WIDTH")
-            .map(|p| p.parse::<i32>().ok())
-            .ok()
-            .flatten()
-            .unwrap_or(1280);
-
-        let height = std::env::var("HEIGHT")
-            .map(|p| p.parse::<i32>().ok())
-            .ok()
-            .flatten()
-            .unwrap_or(720);
-        Self {
-            source,
-            use_cam_builtin_encoder,
-            width,
-            height
-        }
-    }
 
     pub fn find_optimal_settings(devices: &HashMap<String, Device>, config: PipelineConfig) -> Self {
 
