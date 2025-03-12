@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use api_handlers::AuthUser;
-use video::Config;
+use config::Config;
 use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::glib::ControlFlow;
@@ -189,7 +189,7 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
     loop {
         let config = storage.camera_config.pipeline_config().await;
         let devices = storage.devices.devices().await;
-        let config = Config::find_optimal_settings(devices, config);
+        let config = video::Config::find_optimal_settings(devices, config);
 
         info!("Starting new pipline with config: {config:?}");
 
@@ -286,10 +286,10 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    const STORAGE_PATH: &str = "./picam.db";
-    const BIND: &str = "0.0.0.0:8080";
+    let config = Config::from_env();
+
     env_logger::init();
-    let storage = Arc::new(Storage::new_sqlite(&STORAGE_PATH).await);
+    let storage = Arc::new(Storage::new_sqlite(&config.app_data).await);
 
     let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
     
@@ -340,8 +340,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(CookieSession::new(CookieConfig::signed(CookieKey::generate())))
             .with(cors);
 
-    info!("Listening on: {BIND}");
-    if let Err(e) = Server::new(TcpListener::bind(BIND))
+    info!("Listening on: {}", config.bind);
+    if let Err(e) = Server::new(TcpListener::bind(config.bind))
         .run(app)
         .await {
             error!("Error starting server: {e:?}")
