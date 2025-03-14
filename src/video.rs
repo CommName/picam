@@ -26,7 +26,7 @@ pub struct Config {
 }
 
 
-fn short_pipeline(config: &Config) -> Vec<Element> { 
+fn short_pipeline(config: &Config) -> Result<Vec<Element>, String> { 
     let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
         .name("capsfilter")
         .property("caps", gstreamer::Caps::builder("video/x-h264")
@@ -37,14 +37,15 @@ fn short_pipeline(config: &Config) -> Vec<Element> {
             .build()
         )
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    vec![capsfilter]
+    Ok(vec![capsfilter])
 }
 
-fn long_pipeline(config: &Config) -> Vec<Element> {
+fn long_pipeline(config: &Config) -> Result<Vec<Element>, String> {
     println!("Using software encoder");
-    let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert")).unwrap();
+    let videoconvert = ElementFactory::make_with_name("videoconvert", Some("videoconvert"))
+        .map_err(|e| e.to_string())?;
     let capsfilter: gstreamer::Element = ElementFactory::make("capsfilter")
         .name("capsfilter")
         .property("caps", gstreamer::Caps::builder("video/x-raw")
@@ -55,7 +56,7 @@ fn long_pipeline(config: &Config) -> Vec<Element> {
             .build()
         )
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     let x264enc = ElementFactory::make("x264enc")
         .name("x264enc")
@@ -66,9 +67,9 @@ fn long_pipeline(config: &Config) -> Vec<Element> {
         .property_from_str("speed-preset", "ultrafast")
         .property_from_str("tune", "zerolatency")
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    vec![videoconvert, capsfilter, x264enc]
+    Ok(vec![videoconvert, capsfilter, x264enc])
 }
 
 pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config) -> Result<Pipeline, String> {
@@ -81,16 +82,17 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
         .property("device", config.source.clone())
         .property("num-buffers", -1)
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     let video_elements = if config.use_cam_builtin_encoder {
         short_pipeline(&config)
     } else {
-        long_pipeline(&config) 
-    };
+        long_pipeline(&config)
+    }?;
 
 
-    let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse")).unwrap();
+    let h264parse = ElementFactory::make_with_name("h264parse", Some("h264parse"))
+        .map_err(|e| e.to_string())?;
 
     let mpegtsmux = ElementFactory::make("mp4mux")
         .name("mp4mux")
@@ -99,7 +101,7 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
         .property("fragment-duration", 1u32)
         .property("faststart", true)
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     let appsink = AppSink::builder()
         .name("app_sink")
@@ -108,7 +110,7 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
 
     // Add elements to the pipeline
     pipeline.add_many(&video_elements)
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     pipeline.add_many(&[
         &v4l2src,
@@ -116,22 +118,23 @@ pub fn build_gstreamer_pipline(send: Sender<Arc<ParsedBuffer>>, config: &Config)
         &mpegtsmux,
         appsink.upcast_ref(),
     ])
-    .unwrap();
+        .map_err(|e| e.to_string())?;
 
     // Link elements in the pipeline
     gstreamer::Element::link_many(&[
         &v4l2src,
         video_elements.first().unwrap()
-    ]).unwrap();
+    ]).map_err(|e| e.to_string())?;
     if video_elements.len() > 1 {
-        gstreamer::Element::link_many(&video_elements).unwrap()
+        gstreamer::Element::link_many(&video_elements)
+            .map_err(|e| e.to_string())?;
     }
     gstreamer::Element::link_many(&[
         video_elements.last().unwrap(),
         &h264parse,
         &mpegtsmux,
         &appsink.upcast_ref()
-    ]).unwrap();
+    ]).map_err(|e| e.to_string())?;
 
 
     let mut vec = Vec::with_capacity(1024);

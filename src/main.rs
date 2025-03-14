@@ -195,13 +195,12 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                 }
                 main_loop.run();
                 let _ = pipeline.set_state(State::Null);
-                std::thread::sleep(Duration::from_secs(15));
             },
             Err(e) => {
                 error!("Error creating pipline: {e:?}");
-                break;
             }
         }
+        std::thread::sleep(Duration::from_secs(15));
     }
     error!("Exiting watchdog!");
 }
