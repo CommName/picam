@@ -41,7 +41,7 @@ impl Endpoint for Frontend {
     type Output = Response;
     async fn call(&self, req: poem::Request) -> poem::Result<Self::Output> {
         let (mut req, mut body) = req.split();
-        let Data(storage):  Data<&Arc<Storage>> = Data::from_request_without_body(&req).await.unwrap();
+        let Data(storage):  Data<&Arc<Storage>> = Data::from_request_without_body(&req).await?;
         if req.method() == Method::GET {
             let init = self.initialize.read().await.clone();
             if init {
@@ -56,7 +56,7 @@ impl Endpoint for Frontend {
             }
 
         } else if req.method() == Method::POST {
-            let user= Form::<User>::from_request(&req,&mut body).await.unwrap();            
+            let user= Form::<User>::from_request(&req,&mut body).await?;            
             let session =  <&Session as FromRequest>::from_request(&req,&mut body).await?;
 
             let init = self.initialize.read().await.clone();

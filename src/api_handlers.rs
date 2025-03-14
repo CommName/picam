@@ -13,7 +13,23 @@ pub enum Error {
     #[oai (status="400")]
     BadRequest(Json<ErrorMessage>),
     #[oai (status="401")]
-    AuthError(Json<ErrorMessage>)
+    AuthError(Json<ErrorMessage>),
+    #[oai (status=505)]
+    ServerError(Json<ErrorMessage>)
+}
+
+impl Error {
+    pub fn not_found(error: String) -> Self {
+        Self::NotFound(Json(ErrorMessage{
+            error
+        }))
+    }
+
+    pub fn server_error(error: String) -> Self {
+        Self::ServerError(Json(ErrorMessage{
+            error
+        }))
+    }
 }
 
 #[derive(Object)]
@@ -74,38 +90,40 @@ pub struct Api;
 impl Api {
     /// Hello world
     #[oai(path = "/recordings", method = "get")]
-    async fn list_recordings(&self) -> Json<Vec<String>> {
+    async fn list_recordings(&self) -> Result<Json<Vec<String>>> {
         let mut recordings = Vec::new();
 
         let mut dir = tokio::fs::read_dir(crate::file_sink::APP_DATA_PATH).await
-            .unwrap();
+            .map_err(|e| Error::server_error(format!("Failed to create path to app_data dir {e:?}")))?;
 
         while let Ok(Some(f)) = dir.next_entry().await {
             let path = f.path();
             if path.extension().map(|e| e == "mp4").unwrap_or(false) {
-                recordings.push(path.file_name().unwrap().to_str().unwrap().to_string());
+                recordings.push(path.file_name().unwrap_or_default().to_str().unwrap_or_default().to_string());
             }
         }
         
-        Json(recordings)
+        Ok(Json(recordings))
     }
 
 
     #[oai(path = "/recordings/:recording", method = "get")]
-    async fn download_recordings(&self, Path(recording): Path<String>) -> Response<Binary<Vec<u8>>> {
+    async fn download_recordings(&self, Path(recording): Path<String>) -> Result<Response<Binary<Vec<u8>>>> {
 
         let path = PathBuf::from_str(&(crate::file_sink::APP_DATA_PATH.to_string() + "/" + &recording))
-            .unwrap(); // TODO handle this error
+            .map_err(|e| Error::server_error(format!("Failed to create path to app_data dir {e:?}")))?;
 
         if path.parent().map(|p| p.as_os_str() != crate::file_sink::APP_DATA_PATH).unwrap_or(true) {
             println!("Tempered path from user side");
         }
-        // TODO check if file exists
+        if !tokio::fs::try_exists(&path).await.map_err(|e| Error::server_error(format!("Failed to read content of recording {e:?}")))? {
+            Err(Error::not_found("Recording not found".to_string()))?;
+        }
 
-        let content = tokio::fs::read(path).await
-            .unwrap(); // TODO handle this error
+        let content = tokio::fs::read(&path).await
+            .map_err(|e| Error::server_error(format!("Failed to read content of recording {e:?}")))?; // TODO handle this error
 
-        Response::new(Binary(content)).header(poem::http::header::CONTENT_TYPE, "video/mp4")
+        Ok(Response::new(Binary(content)).header(poem::http::header::CONTENT_TYPE, "video/mp4"))
     }
 
 
@@ -155,13 +173,13 @@ impl Api {
 
     #[oai(path= "/pipeline/config", method ="get")]
     async fn get_config(&self,  storage: web::Data<&Arc<Storage>>) -> Json<PipelineConfig> {
-        let config = storage.camera_config.pipeline_config().await;
+        let config = storage.camera_config.get().await;
         Json(config)
     }
 
     #[oai(path= "/pipeline/config", method ="post")]
     async fn set_config(&self, config: Json<PipelineConfig>,  storage: web::Data<&Arc<Storage>>) {
-        storage.camera_config.set_pipeline_config(&config).await;
+        storage.camera_config.set(&config).await;
     }
 
 }

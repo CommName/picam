@@ -86,8 +86,6 @@ fn ws(
                 }
             }
         }
-
-
     })
 }
 
@@ -111,7 +109,7 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
     gstreamer::init().unwrap();
 
     loop {
-        let config = storage.camera_config.pipeline_config().await;
+        let config = storage.camera_config.get().await;
         let devices = storage.devices.devices().await;
         let config = video::Config::find_optimal_settings(devices, config);
 
@@ -246,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_origin_regex("*");
 
     let api_service =
-        OpenApiService::new(api_handlers::Api, "PICam", "0.1").server("http://localhost:8080");
+        OpenApiService::new(api_handlers::Api, "PICam", "0.1").server(&config.bind);
 
     println!("Starting server");
 
@@ -265,7 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with(cors);
 
     info!("Listening on: {}", config.bind);
-    if let Err(e) = Server::new(TcpListener::bind(config.bind))
+    if let Err(e) = Server::new(TcpListener::bind(&config.bind))
         .run(app)
         .await {
             error!("Error starting server: {e:?}")
