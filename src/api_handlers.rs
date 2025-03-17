@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr, sync::Arc};
 
 use poem::{session::Session, web, FromRequest};
 use poem_openapi::{param::Path, payload::{Binary, Json, Response}, ApiResponse, Object, OpenApi};
-use crate::{models::*, storage::Storage};
+use crate::{models::*, storage::*};
 
 type Result<T> = std::result::Result<T, Error>;
 

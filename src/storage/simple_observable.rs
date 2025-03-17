@@ -33,7 +33,9 @@ D: Clone + Send + Sync {
 
     async fn set(&self, value: &D) {
         self.storage.set(value).await;
+        println!("Storage change sending stuff");
         let _ = self.broadcast.send(value.clone());
+        println!("Stuff sent");
     }
 }
 

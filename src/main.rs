@@ -125,19 +125,20 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                     continue;
                 };
                 let main_loop = glib::MainLoop::new(None, false);
-                let main_loop_ref = main_loop.clone();
+                let (tx_quit,mut rx_quit) = tokio::sync::mpsc::channel(1);
+                let tx_ref = tx_quit.clone();
 
                 let _ = bus.add_watch(move |_, message| {
-                    let main_loop = &main_loop_ref;
+                    let tx_quit = &tx_quit;
                     debug!("New messaged on the buss: {message:?}");
                     match message.view() {
                         MessageView::Eos(_) => {
                             error!("End of stream reached!, Restarting pipeline");
-                            main_loop.quit();
+                            let _ = tx_quit.try_send(());
                         },
                         MessageView::Error(err) => {
                             warn!("Pipeline error: {err:?}");
-                            main_loop.quit();
+                            let _ = tx_quit.try_send(());
                         },
                         MessageView::StateChanged(statechange) => {
                             match pipeline_weak.upgrade() {
@@ -147,7 +148,7 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                                     info!("State changed from {prev:?} to {curr:?}");
                                     match curr {
                                         State::Null => {
-                                            main_loop.quit();
+                                            let _ = tx_quit.try_send(());
                                             return  ControlFlow::Break;
                                         },
                                         State::Paused => {
@@ -161,9 +162,9 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                                         },
                                         State::Ready => {
                                             if prev == State::Playing || prev== State::Paused {
-                                             warn!("Pipline went from Playing/Paused to Ready state");
+                                                warn!("Pipline went from Playing/Paused to Ready state");
                                                 // pipeline.set_state(State::Playing);
-                                                main_loop.quit();
+                                                let _ = tx_quit.try_send(());
                                                 return  ControlFlow::Break;
                                             }
                                         },
@@ -176,12 +177,10 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                                     }
                                 },
                                 None => {
-                                    main_loop.quit();
+                                    let _ = tx_quit.try_send(());
                                     return ControlFlow::Break;
                                 }
-
                             }
-
                         },
                         _ => {
 
@@ -194,14 +193,35 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
                 if let Err(e) = pipeline.set_state(State::Playing) {
                     error!("Failed to start pipline {e:?}");
                 }
-                main_loop.run();
+
+                let main_loop_ref = main_loop.clone();
+                let storage_ref = Arc::clone(&storage);
+                tokio::task::spawn(async move {
+                    let mut storage_change = storage_ref
+                        .camera_config
+                        .subscribe()
+                        .await;
+                    tokio::select! {
+                        _ = rx_quit.recv() => {
+                        }             
+                         _ = storage_change.recv()=> {
+                        }
+                    }
+                    main_loop_ref.quit();
+                });
+
+                let _ = tokio::task::spawn_blocking(move || {
+                    main_loop.run();
+                }).await;
+
+                let _ = tx_ref.send(()).await;
                 let _ = pipeline.set_state(State::Null);
             },
             Err(e) => {
                 error!("Error creating pipline: {e:?}");
             }
         }
-        std::thread::sleep(Duration::from_secs(15));
+        tokio::time::sleep(Duration::from_secs(15)).await;
     }
     error!("Exiting watchdog!");
 }
@@ -212,6 +232,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     env_logger::init();
     let storage = Arc::new(Storage::new_sqlite(&config.app_data).await);
+
+    info!("Devices found: {:?}", storage.devices.devices().await);
 
     let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
     
@@ -225,7 +247,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let tx2 = tx.clone();
     let storage2 = Arc::clone(&storage);
-    tokio::task::spawn(async move {
+    tokio::task::spawn(async {
         pipeline_watchdog(storage2, tx).await;
     });
 
