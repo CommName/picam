@@ -185,3 +185,23 @@ impl SimpleStorage<PipelineConfig> for SQLiteStorage {
     }
 
 }
+
+
+const FILE_SINK_CONFIG: &str = "file_sink_config";
+#[async_trait::async_trait]
+impl SimpleStorage<FileSinkConfig> for SQLiteStorage {
+    async fn get(&self) -> FileSinkConfig {
+        fetch_config(FILE_SINK_CONFIG, self.db.as_ref())
+        .await
+        .map(|r| {
+            let ret: sqlx::types::JsonValue = r.get("value");
+            ret
+            })
+        .map(|j| serde_json::from_value(j).ok())
+        .flatten().unwrap_or_default()
+    }
+
+    async fn set(&self, value: &FileSinkConfig) {
+        update_paramter(FILE_SINK_CONFIG, &Some(value), self.db.as_ref()).await;
+    }
+}

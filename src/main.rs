@@ -104,6 +104,7 @@ pub struct ParsedBuffer {
     timestamp: Option<ClockTime>
 }
 
+#[allow(unreachable_code)]
 pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffer>>) {
 
     gstreamer::init().unwrap();

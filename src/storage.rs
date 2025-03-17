@@ -1,12 +1,16 @@
 use std::collections::HashMap;
+use tokio::sync::broadcast::Receiver;
+
 use crate::models::*;
 
-pub mod sqlite;
-pub mod memory;
+mod sqlite;
+mod memory;
+mod simple_observable;
 
 pub struct Storage {
     pub users: Box<dyn UserStorage + Send + Sync>,
-    pub camera_config: Box<dyn SimpleStorage<PipelineConfig> + Send + Sync>,
+    pub camera_config: Box<dyn ObservableStorage<PipelineConfig> + Send + Sync>,
+    pub file_config: Box<dyn ObservableStorage<FileSinkConfig> + Send + Sync>,
     pub devices: Box<dyn DeviceStorage + Send + Sync>
 
 }
@@ -14,13 +18,15 @@ pub struct Storage {
 impl Storage {
 
     pub async fn new_sqlite(sqlite_path: &str) -> Self {   
+        use simple_observable::SimpleObservable;
         let sqlite_storage = sqlite::SQLiteStorage::new(&sqlite_path).await;
 
         let devices = Box::new(memory::MemoryDeviceStorage::default());
 
         Self {
             users: Box::new(sqlite_storage.clone()),
-            camera_config: Box::new(sqlite_storage),
+            file_config: Box::new(SimpleObservable::new(sqlite_storage.clone())),
+            camera_config: Box::new(SimpleObservable::new(sqlite_storage)),
             devices
         }        
     }
@@ -47,4 +53,12 @@ pub trait SimpleStorage<T> {
 #[async_trait::async_trait]
 pub trait DeviceStorage {
     async fn devices(&self) -> &HashMap<String, Device>;
+}
+
+#[async_trait::async_trait]
+pub trait Observable<T> {
+    async fn subscribe(&self) -> Receiver<T>;
+}
+
+pub trait ObservableStorage<T> : Observable<T> + SimpleStorage<T> {   
 }
