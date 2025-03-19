@@ -5,43 +5,19 @@ use tokio::{
     sync::{broadcast::Receiver, RwLock},
 };
 use log::*;
-use crate::{MessageType, ParsedBuffer};
+use crate::{storage::Storage, MessageType, ParsedBuffer, models::*};
 pub const APP_DATA_PATH: &str = "./app_data";
 
-
-pub struct FileSinkConfig {
-    app_data: String,
-    max_file_duration: Option<u64>,
-    max_number_of_file: Option<u64>,
-    max_system_usage: f64,
-}
-
-impl Default for FileSinkConfig {
-    fn default() -> Self {
-        const CREATE_NEW_FILE_THRESHOLD: u64 = 10 * 60;
-        const MAX_FS_USAGE: f64 = 0.9;
-        const MAX_NUMBER_OF_FILES: u64 = 24 * 60 * 60 / CREATE_NEW_FILE_THRESHOLD; // 1 - day
-        pub const APP_DATA_PATH: &str = "./app_data";
-        Self {
-            app_data: APP_DATA_PATH.to_string(),
-            max_file_duration: Some(CREATE_NEW_FILE_THRESHOLD),
-            max_number_of_file: Some(MAX_NUMBER_OF_FILES),
-            max_system_usage: MAX_FS_USAGE,
-        }
-    }
-}
 
 pub async fn file_saver(
     mut recv: Receiver<Arc<ParsedBuffer>>,
     moov: Arc<RwLock<Vec<Vec<u8>>>>,
-    mut config_reciver: Receiver<Arc<FileSinkConfig>>,
+    app_data: &str,
+    storage: Arc<Storage>,
 ) {
-    let mut config = config_reciver.recv().await.unwrap_or_default();
-    let mut file = generate_new_file(&config.app_data).await;
-    // if let Err(_) = save_moov_header(&moov, &mut file).await {
-    // TODO log and handle error
-    // }
-
+    let mut config = storage.file_config.get().await;
+    let mut file = generate_new_file(&app_data).await;
+    let mut config_reciver = storage.file_config.subscribe().await;
     let mut timestamp_when_file_is_created = 0;
 
     loop {
@@ -54,11 +30,11 @@ pub async fn file_saver(
                         buffer.message_type == MessageType::KeyFrame &&
                         should_create_new_file(&buffer,&mut timestamp_when_file_is_created, &config)
                     ) {
-                        while should_file_be_rotated(&config).await {
-                            remove_oldest_file(&config.app_data).await;
+                        while should_file_be_rotated(&config, app_data).await {
+                            remove_oldest_file(&app_data).await;
                         }
 
-                        file = generate_new_file(&config.app_data).await;
+                        file = generate_new_file(&app_data).await;
                         if let Err(_) = save_moov_header(&moov, &mut file).await {
                             // TODO log and handle error
                         }
@@ -72,11 +48,8 @@ pub async fn file_saver(
                 }
             }
         },
-        new_config = config_reciver.recv() => {
-            if let Ok(new_config) = new_config {
-                config = new_config;
-            }
-
+        _ = config_reciver.recv() => {
+            config = storage.file_config.get().await;
         }
         }
     }
@@ -105,10 +78,10 @@ async fn remove_oldest_file(app_data: &str) {
     }
 }
 
-async fn should_file_be_rotated(config: &FileSinkConfig) -> bool {
-    percentage_of_file_system_usage(&config.app_data) > config.max_system_usage
+async fn should_file_be_rotated(config: &FileSinkConfig, app_data: &str) -> bool {
+    percentage_of_file_system_usage(app_data) > config.max_system_usage
         || (config.max_number_of_file.is_some()
-            && &number_of_mp4_files(&config.app_data).await
+            && &number_of_mp4_files(app_data).await
                 > config.max_number_of_file.as_ref().unwrap_or(&0))
 }
 

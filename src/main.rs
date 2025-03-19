@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 use config::Config;
-use file_sink::FileSinkConfig;
 use futures_util::{SinkExt, StreamExt};
 use gstreamer::glib::ControlFlow;
 use gstreamer::{prelude::*, ClockTime, MessageView, State};
@@ -230,9 +229,13 @@ pub async fn pipeline_watchdog(storage: Arc<Storage>, tx: Sender<Arc<ParsedBuffe
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env();
 
-    env_logger::init();
-    let storage = Arc::new(Storage::new_sqlite(&config.app_data).await);
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "INFO".to_string());
+    std::env::set_var("RUST_LOG", log_level);
 
+    env_logger::init();
+    let storage = Arc::new(Storage::new_sqlite(&config.db).await);
+
+    info!("Config: {config:?}");
     info!("Devices found: {:?}", storage.devices.devices().await);
 
     let (tx, _) = tokio::sync::broadcast::channel::<Arc<ParsedBuffer>>(1024); 
@@ -253,12 +256,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let moov2 = Arc::clone(&moov);
     let file_sink_subscirber = tx2.subscribe();
-    let (config_tx, config_rx) = tokio::sync::broadcast::channel(5);
+    let storage_ref = Arc::clone(&storage);
     tokio::spawn(async move {
-        file_sink::file_saver(file_sink_subscirber, moov2, config_rx).await;
+        file_sink::file_saver(file_sink_subscirber, moov2, &config.app_data, storage_ref).await;
     });
 
-    let _ = config_tx.send(Arc::new(FileSinkConfig::default()));
 
     let cors = Cors::new()
         .allow_method(Method::GET)
