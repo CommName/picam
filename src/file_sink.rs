@@ -6,8 +6,6 @@ use tokio::{
 };
 use log::*;
 use crate::{storage::Storage, MessageType, ParsedBuffer, models::*};
-pub const APP_DATA_PATH: &str = "./app_data";
-
 
 pub async fn file_saver(
     mut recv: Receiver<Arc<ParsedBuffer>>,

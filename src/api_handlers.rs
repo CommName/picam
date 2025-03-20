@@ -90,10 +90,10 @@ pub struct Api;
 impl Api {
     /// Hello world
     #[oai(path = "/recordings", method = "get")]
-    async fn list_recordings(&self) -> Result<Json<Vec<String>>> {
+    async fn list_recordings(&self, storage: web::Data<&Arc<Storage>>) -> Result<Json<Vec<String>>> {
         let mut recordings = Vec::new();
 
-        let mut dir = tokio::fs::read_dir(crate::file_sink::APP_DATA_PATH).await
+        let mut dir = tokio::fs::read_dir(storage.config.app_data.clone()).await
             .map_err(|e| Error::server_error(format!("Failed to create path to app_data dir {e:?}")))?;
 
         while let Ok(Some(f)) = dir.next_entry().await {
@@ -108,12 +108,12 @@ impl Api {
 
 
     #[oai(path = "/recordings/:recording", method = "get")]
-    async fn download_recordings(&self, Path(recording): Path<String>) -> Result<Response<Binary<Vec<u8>>>> {
+    async fn download_recordings(&self, Path(recording): Path<String>, storage: web::Data<&Arc<Storage>>) -> Result<Response<Binary<Vec<u8>>>> {
 
-        let path = PathBuf::from_str(&(crate::file_sink::APP_DATA_PATH.to_string() + "/" + &recording))
+        let path = PathBuf::from_str(&(storage.config.app_data.clone() + "/" + &recording))
             .map_err(|e| Error::server_error(format!("Failed to create path to app_data dir {e:?}")))?;
 
-        if path.parent().map(|p| p.as_os_str() != crate::file_sink::APP_DATA_PATH).unwrap_or(true) {
+        if path.parent().map(|p| p.as_os_str() != storage.config.app_data.as_str()).unwrap_or(true) {
             println!("Tempered path from user side");
         }
         if !tokio::fs::try_exists(&path).await.map_err(|e| Error::server_error(format!("Failed to read content of recording {e:?}")))? {
