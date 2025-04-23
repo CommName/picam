@@ -127,6 +127,16 @@ impl Api {
     }
 
 
+    #[oai(path= "/recordings/config", method ="get")]
+    async fn get_file_config(&self,  storage: web::Data<&Arc<Storage>>) -> Json<FileSinkConfig> {
+        let config = storage.file_config.get().await;
+        Json(config)
+    }
+    #[oai(path= "/recordings/config", method ="post")]
+    async fn set_file_config(&self, config: Json<FileSinkConfig>,  storage: web::Data<&Arc<Storage>>) {
+        storage.file_config.set(&config).await;
+    }
+
     #[oai(path = "/users/init", method = "post")]
     async  fn init_user(&self, Json(admin): Json<User>,  storage: web::Data<&Arc<Storage>>) {
         crate::users::init_user(admin, &storage).await;
@@ -181,5 +191,6 @@ impl Api {
     async fn set_config(&self, config: Json<PipelineConfig>,  storage: web::Data<&Arc<Storage>>) {
         storage.camera_config.set(&config).await;
     }
+
 
 }

@@ -1,8 +1,9 @@
+use poem_openapi::Object;
 use serde::{Deserialize, Serialize};
 
 
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Object, Serialize, Deserialize, Debug, Clone)]
 pub struct FileSinkConfig {
     pub max_file_duration: Option<u64>,
     pub max_number_of_file: Option<u64>,

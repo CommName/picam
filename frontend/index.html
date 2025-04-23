@@ -27,9 +27,16 @@
         </div>
         <progress id="progress"></progress>
         <div style="visibility: collapse;" class="container" id="config">
+            <h2>Camera configuration</h2>
             <table id="pipeline_config">
             </table>
             <button id="saveConfig" onclick="saveConfig()">Save</button>
+
+            <h2>Recording configuration</h2>
+            <table id="recording_config">
+            </table>
+            <button id="saveRecordingConfig" onclick="saveRecordingConfig()">Save</button>
+
         </div>
     </main>
 </body>
@@ -197,23 +204,36 @@ function createTimeline(archiveList) {
     let pipeline_config = {};
 
     function refreshConfig() {
-        var xhttp = new XMLHttpRequest();
-        xhttp.onreadystatechange = function() {
+        const pipelienConfigRequest = new XMLHttpRequest();
+        pipelienConfigRequest.onreadystatechange = function() {
             if (this.readyState == 4 && this.status == 200) {
-                let config = JSON.parse(xhttp.responseText);
-                loadConfigTable(config);
+                let config = JSON.parse(pipelienConfigRequest.responseText);
+                console.log(config);
+                let configTable = document.getElementById("pipeline_config")
+                loadConfigTable(config, configTable);
             }
         };
-        xhttp.open("GET", "./api/pipeline/config", true);
-        xhttp.send();
+        pipelienConfigRequest.open("GET", "./api/pipeline/config", true);
+        pipelienConfigRequest.send();
+
+
+        const recordingConfigRequest = new XMLHttpRequest();
+        recordingConfigRequest.onreadystatechange = function() {
+            if (this.readyState == 4 && this.status == 200) {
+                let config = JSON.parse(recordingConfigRequest.responseText);
+                let recordingconfigTable = document.getElementById("recording_config")
+                loadConfigTable(config, recordingconfigTable);
+            }
+        };
+        recordingConfigRequest.open("GET", "./api/recordings/config", true);
+        recordingConfigRequest.send();
 
     }
 
-    function loadConfigTable(config) {
-        let configTable = document.getElementById("pipeline_config")
-        addConfigTableHeader(configTable);
+    function loadConfigTable(config, table) {
+        addConfigTableHeader(table);
         for (const [key, value] of Object.entries(config)) {
-            addConfigEntry(key,value, configTable);
+            addConfigEntry(key,value, table);
         }
     }
 
