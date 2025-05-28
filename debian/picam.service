@@ -1,0 +1,12 @@
+[Unit]
+Description=PICam Service
+After=network.target
+
+[Service]
+ExecStart=/opt/picam/picam
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

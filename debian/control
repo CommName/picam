@@ -1,0 +1,7 @@
+Package: picam
+Version: 1.0.0
+Section: base
+Priority: optional
+Architecture: amd64
+Maintainer: Milan Jankovic jankovic.milan997@gmail.com
+Description: PICam application
